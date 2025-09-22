@@ -8,6 +8,7 @@ dependencies = [
     "cryptohftdata>=0.1.4",
     "fastparquet>=2024.11.0",
     "hftbacktest>=2.3.0",
+    "hvplot>=0.12.1",
     "ipykernel>=6.30.1",
     "ipywidgets>=8.1.7",
     "loguru>=0.7.3",
