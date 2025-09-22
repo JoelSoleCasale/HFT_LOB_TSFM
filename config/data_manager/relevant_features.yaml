@@ -1,0 +1,46 @@
+# The list of relevant features to keep when downloading the dataframes
+# Only the relevant features will be saved, useful for saving memory
+# If nothing is specified, then all the features will be downloaded
+
+orderbook:
+  - received_time
+  - event_time
+  - symbol
+  - event_type
+  - side
+  - price
+  - quantity
+
+trades:
+  - received_time
+  - event_time
+  - symbol
+  - trade_id
+  - price
+  - quantity
+  - trade_time
+  - is_buyer_maker
+  - order_type
+
+ticker: null
+
+mark_price: null
+
+funding_rates: null
+
+open_interest: null
+
+liquidations:
+  - received_time
+  - event_time
+  - symbol
+  - side
+  - order_type
+  - time_in_force
+  - quantity
+  - price
+  - average_price
+  - order_status
+  - last_filled_quantity
+  - filled_quantity
+  - trade_time
