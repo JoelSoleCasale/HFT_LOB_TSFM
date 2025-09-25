@@ -13,6 +13,7 @@ dependencies = [
     "ipywidgets>=8.1.7",
     "loguru>=0.7.3",
     "matplotlib>=3.10.6",
+    "numba>=0.62.0",
     "numpy>=2.2.6",
     "pandas>=2.3.2",
     "polars>=1.33.1",

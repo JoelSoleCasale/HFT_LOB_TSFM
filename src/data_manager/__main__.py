@@ -9,6 +9,7 @@ import cryptohftdata as chd
 
 from dotenv import load_dotenv
 from definitions import ROOT_DIR
+import sys
 
 
 def load_config():
@@ -79,7 +80,7 @@ def main() -> None:
     args = parse_args(default_cfg)
 
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""), level=args.log_level)
+    logger.add(sys.stderr, level=args.log_level, colorize=True)
 
     logger.debug("Final Configuration:\n" + yaml.dump(vars(args)))
 

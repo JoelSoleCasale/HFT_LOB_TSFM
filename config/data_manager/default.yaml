@@ -8,4 +8,4 @@ exchange:
 relevant_features_path: "config/data_manager/relevant_features.yaml"
 dates:
   start_date: "2025-07-01"
-  end_date: "2025-07-02" # If null, use today's date
+  end_date: null # If null, use today's date
