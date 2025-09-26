@@ -6,6 +6,7 @@ from tqdm import tqdm
 import pandas as pd
 import yaml
 from definitions import ROOT_DIR
+from typing import Literal
 
 
 class DataDownloader:
@@ -39,6 +40,7 @@ class DataDownloader:
         exchange: str | list[str],
         date: str | list[str],
         skip_existing: bool = True,
+        reference_ts: Literal["received_time", "event_time"] = "received_time",
     ):
         """
         Downloads data for the given data types, symbols, exchanges, and dates.
@@ -52,6 +54,8 @@ class DataDownloader:
             exchange (Union[str, List[str]]): The exchange(s) (e.g., 'binance-futures').
             date (Union[str, List[str]]): The date(s) in 'YYYY-MM-DD' format.
             skip_existing (bool, optional): If True, skips download if the file already exists. Defaults to True.
+            reference_ts (Literal["received_time", "event_time"], optional): The timestamp reference to use.
+                Defaults to "received_time". The downloaded data will be sorted by this timestamp.
         """
         allowed_types = {
             "orderbook",
@@ -77,7 +81,7 @@ class DataDownloader:
 
         for dt, sym, ex, d in tqdm(combinations, desc="Downloading data"):
             try:
-                self._download_single(dt, sym, ex, d, skip_existing)
+                self._download_single(dt, sym, ex, d, skip_existing, reference_ts)
             except Exception as e:
                 logger.error(f"Failed to download {dt} for {sym} on {ex} for {d}: {e}")
 
@@ -88,6 +92,7 @@ class DataDownloader:
         exchange: str,
         date: str,
         skip_existing: bool,
+        reference_ts: Literal["received_time", "event_time"],
     ):
         """
         Downloads a single data file.
@@ -126,5 +131,17 @@ class DataDownloader:
                 ]
                 df = df[features_to_keep]
 
+        # sort by reference timestamp
+        if reference_ts in df.columns:
+            logger.debug(f"Sorting by {reference_ts}")
+            df = df.sort_values(by=reference_ts)
+        else:
+            logger.warning(
+                f"Reference timestamp '{reference_ts}' not in columns. Skipping sort."
+            )
+
         df.to_parquet(output_file)
         logger.success(f"Successfully downloaded and saved to {output_file}")
+
+        # remove dataframe from memory
+        del df

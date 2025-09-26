@@ -38,6 +38,7 @@ def parse_args(default_cfg):
         symbol=default_cfg["data_manager"]["symbol"],
         exchange=default_cfg["data_manager"]["exchange"],
         relevant_features_path=default_cfg["data_manager"]["relevant_features_path"],
+        reference_ts=default_cfg["data_manager"]["reference_ts"],
         start_date=default_cfg["data_manager"]["dates"]["start_date"],
         end_date=default_cfg["data_manager"]["dates"]["end_date"],
     )
@@ -53,6 +54,12 @@ def parse_args(default_cfg):
         "--relevant_features_path",
         type=str,
         help="Path to YAML file with relevant features to keep.",
+    )
+    parser.add_argument(
+        "--reference_ts",
+        type=str,
+        choices=["received_time", "event_time"],
+        help="Timestamp reference to use for sorting.",
     )
     parser.add_argument(
         "--start_date", type=str, help="Start date in YYYY-MM-DD format."
@@ -114,6 +121,7 @@ def main() -> None:
         exchange=args.exchange,
         date=days,
         skip_existing=not args.overwrite_existing,
+        reference_ts=args.reference_ts,
     )
 
 
