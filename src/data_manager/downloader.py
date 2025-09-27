@@ -2,7 +2,6 @@ import itertools
 from pathlib import Path
 from loguru import logger
 import cryptohftdata as chd
-from tqdm import tqdm
 import polars as pl
 import yaml
 from definitions import ROOT_DIR
@@ -77,9 +76,7 @@ class DataDownloader:
         exchanges = [exchange] if isinstance(exchange, str) else exchange
         dates = [date] if isinstance(date, str) else date
 
-        combinations = list(itertools.product(data_types, symbols, exchanges, dates))
-
-        for dt, sym, ex, d in tqdm(combinations, desc="Downloading data"):
+        for dt, sym, ex, d in itertools.product(data_types, symbols, exchanges, dates):
             try:
                 self._download_single(dt, sym, ex, d, skip_existing, reference_ts)
             except Exception as e:
