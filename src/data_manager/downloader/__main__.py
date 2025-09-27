@@ -4,7 +4,7 @@ import os
 from datetime import date, timedelta
 import argparse
 
-from data_manager.downloader import DataDownloader
+from data_manager.downloader.data_downloader import DataDownloader
 import cryptohftdata as chd
 
 from dotenv import load_dotenv
@@ -15,10 +15,12 @@ import sys
 def load_config():
     """Loads configuration from YAML files."""
     config_path = ROOT_DIR / "config" / "config.yaml"
-    data_manager_config_path = ROOT_DIR / "config" / "data_manager" / "default.yaml"
+    data_downloader_config_path = (
+        ROOT_DIR / "config" / "data_manager" / "downloader" / "default.yaml"
+    )
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    with open(data_manager_config_path, "r") as f:
+    with open(data_downloader_config_path, "r") as f:
         data_manager_config = yaml.safe_load(f)
     config["data_manager"] = data_manager_config
     return config

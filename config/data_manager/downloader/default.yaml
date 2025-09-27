@@ -5,7 +5,7 @@ symbol: BTCUSDT
 exchange:
   - binance_futures
   - binance_spot
-relevant_features_path: "config/data_manager/relevant_features.yaml"
+relevant_features_path: "config/data_manager/downloader/relevant_features.yaml"
 reference_ts: "received_time"
 dates:
   start_date: "2025-07-01"
