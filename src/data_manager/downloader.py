@@ -3,7 +3,7 @@ from pathlib import Path
 from loguru import logger
 import cryptohftdata as chd
 from tqdm import tqdm
-import pandas as pd
+import polars as pl
 import yaml
 from definitions import ROOT_DIR
 from typing import Literal
@@ -109,14 +109,16 @@ class DataDownloader:
 
         download_function = getattr(chd, f"get_{data_type}")
 
-        df: pd.DataFrame = download_function(
-            symbol=symbol,
-            exchange=exchange,
-            start_date=date,
-            end_date=date,
+        df: pl.DataFrame = pl.DataFrame(
+            download_function(
+                symbol=symbol,
+                exchange=exchange,
+                start_date=date,
+                end_date=date,
+            )
         )
 
-        if df.empty:
+        if len(df) == 0:
             logger.warning(
                 f"No data for {data_type} for {symbol} on {exchange} for {date}"
             )
@@ -131,16 +133,24 @@ class DataDownloader:
                 ]
                 df = df[features_to_keep]
 
+        # check if any string can be converted to float
+        for col in df.select(pl.col(pl.Utf8)).columns:
+            try:
+                df = df.with_columns(pl.col(col).cast(pl.Float64))
+                logger.debug(f"Casted column {col} to Float64")
+            except Exception:
+                logger.debug(f"Could not cast column {col} to Float64, keeping as is")
+
         # sort by reference timestamp
         if reference_ts in df.columns:
             logger.debug(f"Sorting by {reference_ts}")
-            df = df.sort_values(by=reference_ts)
+            df = df.sort(by=reference_ts)
         else:
             logger.warning(
                 f"Reference timestamp '{reference_ts}' not in columns. Skipping sort."
             )
 
-        df.to_parquet(output_file)
+        df.write_parquet(output_file)
         logger.success(f"Successfully downloaded and saved to {output_file}")
 
         # remove dataframe from memory
