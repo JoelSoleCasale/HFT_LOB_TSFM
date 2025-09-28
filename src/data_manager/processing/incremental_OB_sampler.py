@@ -366,36 +366,33 @@ class IncrementalOBSampler:
             exchange, symbol, date, levels, force_regenerate
         )
 
-        if time_delta_ns <= 0:
+        if time_delta_ns <= 0 or len(full_data) == 0:
             return full_data
 
-        if len(full_data) == 0:
-            return full_data
+        # Convert to Polars DataFrame
+        df = pl.from_numpy(full_data)
 
-        # assign to each timestamp the last timestemp that is multiple of time_delta_ns, i.e ts - (ts % time_delta_ns)
-        full_data["timestamp"] = (
-            full_data["timestamp"] - full_data["timestamp"] % time_delta_ns
+        # Calculate adjusted timestamps
+        df = df.with_columns(
+            (pl.col("timestamp") - pl.col("timestamp") % time_delta_ns).alias(
+                "timestamp"
+            )
         )
 
-        # remove duplicates. in case of duplicates, keep the last one (most recent)
-        unique_timestamps = np.unique(full_data["timestamp"])
+        # Group by adjusted timestamp and take last row from each group
+        result_df = df.group_by("timestamp").last().sort("timestamp")
 
-        # Initialize array for results
-        result = np.empty(len(unique_timestamps), dtype=full_data.dtype)
+        # Create result array with the new dtype
+        result_array = np.empty(len(result_df), dtype=full_data.dtype)
 
-        # For each unique timestamp, find the last occurrence
-        for i, ts in enumerate(unique_timestamps):
-            indices = np.where(full_data["timestamp"] == ts)[0]
-            last_index = indices[-1]
-            result[i] = full_data[last_index]
-
-        # Update sampled_data
-        full_data = result
+        # Fill the result array
+        for col_name in full_data.dtype.names:
+            result_array[col_name] = result_df[col_name].to_numpy()
 
         logger.info(
-            f"Sampled {len(full_data)} rows from {len(full_data)} original rows"
+            f"Sampled {len(result_array)} rows from {len(full_data)} original rows"
         )
-        return full_data
+        return result_array
 
     def clear_cache(self, exchange: str = None, symbol: str = None, date: date = None):
         """Clear cached data for specific parameters"""
