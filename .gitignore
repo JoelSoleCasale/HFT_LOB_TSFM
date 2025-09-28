@@ -14,3 +14,7 @@ wheels/
 
 # Dataframes
 data/
+
+# test coverage
+htmlcov/
+.coverage

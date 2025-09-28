@@ -16,6 +16,7 @@ dependencies = [
     "numba>=0.62.0",
     "numpy>=2.2.6",
     "pandas>=2.3.2",
+    "poethepoet>=0.37.0",
     "polars>=1.33.1",
     "pyarrow>=21.0.0",
     "python-dotenv>=1.1.1",
@@ -25,8 +26,50 @@ dependencies = [
     "tqdm>=4.67.1",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5.0",
+]
+
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.uv]
 package = true
+
+[tool.poe.tasks]
+hooks = { shell = "uvx pre-commit install --overwrite --install-hooks --hook-type pre-commit --hook-type post-checkout --hook-type pre-push && git checkout" }
+install-test = "uv sync --extra test"
+test = "uv run --extra test pytest tests/ -v"
+test-unit = "uv run --extra test pytest tests/unit/ -v -m unit"
+test-integration = "uv run --extra test pytest tests/integration/ -v -m integration"
+test-cov = "uv run --extra test pytest tests/ --cov=src --cov-report=html --cov-report=term-missing"
+
+[tool.poe.tasks.clean-test]
+shell = """
+rm -rf .pytest_cache
+rm -rf htmlcov
+find . -type d -name __pycache__ -exec rm -rf {} +
+find . -name "*.pyc" -delete
+"""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short --strict-markers --color=yes"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "requires_data: Tests that require external data files",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore:Row orientation inferred during DataFrame construction:UserWarning",
+]

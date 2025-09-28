@@ -13,8 +13,10 @@ from utils import iter_slices
 
 
 class IncrementalOBSampler:
-    def __init__(self, cache_root: str):
-        self.cache_root = Path(cache_root)
+    def __init__(self, cache_root: str | Path):
+        self.cache_root = (
+            Path(cache_root) if isinstance(cache_root, str) else cache_root
+        )
         self.cache_root.mkdir(parents=True, exist_ok=True)
 
     def precompute_full_snapshots(
@@ -367,40 +369,46 @@ class IncrementalOBSampler:
         if time_delta_ns <= 0:
             return full_data
 
-        timestamps = full_data["timestamp"]
-        if len(timestamps) == 0:
+        if len(full_data) == 0:
             return full_data
 
-        # Create target timestamps and sample nearest events
-        start_ts = timestamps[0]
-        end_ts = timestamps[-1]
-
-        target_timestamps = np.arange(start_ts, end_ts + time_delta_ns, time_delta_ns)
-        logger.info(
-            f"Target timestamps from {start_ts} to {end_ts} every {time_delta_ns}: {len(target_timestamps)} total"
+        # assign to each timestamp the last timestemp that is multiple of time_delta_ns, i.e ts - (ts % time_delta_ns)
+        full_data["timestamp"] = (
+            full_data["timestamp"] - full_data["timestamp"] % time_delta_ns
         )
 
-        # Find indices of closest timestamps
-        indices = np.searchsorted(timestamps, target_timestamps)
-        indices = np.clip(indices, 0, len(full_data) - 1)
+        # remove duplicates. in case of duplicates, keep the last one (most recent)
+        unique_timestamps = np.unique(full_data["timestamp"])
 
-        # Remove duplicates that might occur with small time deltas
-        unique_indices = np.unique(indices)
-        sampled_data = full_data[unique_indices]
+        # Initialize array for results
+        result = np.empty(len(unique_timestamps), dtype=full_data.dtype)
+
+        # For each unique timestamp, find the last occurrence
+        for i, ts in enumerate(unique_timestamps):
+            indices = np.where(full_data["timestamp"] == ts)[0]
+            last_index = indices[-1]
+            result[i] = full_data[last_index]
+
+        # Update sampled_data
+        full_data = result
 
         logger.info(
-            f"Sampled {len(sampled_data)} rows from {len(full_data)} original rows"
+            f"Sampled {len(full_data)} rows from {len(full_data)} original rows"
         )
-        return sampled_data
+        return full_data
 
     def clear_cache(self, exchange: str = None, symbol: str = None, date: date = None):
         """Clear cached data for specific parameters"""
-        cache_dir = self.cache_root / "cache"
+        cache_dir = self.cache_root / "orderbook_snapshots"
 
         if exchange is None:
             # Clear all cache
             for path in cache_dir.rglob("*.npz"):
                 path.unlink()
+            # Remove empty directories
+            for path in sorted(cache_dir.rglob("*"), reverse=True):
+                if path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
             logger.info("Cleared all cached data")
         elif symbol is None:
             # Clear exchange cache
@@ -408,6 +416,13 @@ class IncrementalOBSampler:
             if exchange_dir.exists():
                 for path in exchange_dir.rglob("*.npz"):
                     path.unlink()
+                # Remove empty directories
+                for path in sorted(exchange_dir.rglob("*"), reverse=True):
+                    if path.is_dir() and not any(path.iterdir()):
+                        path.rmdir()
+                # Remove exchange directory if empty
+                if not any(exchange_dir.iterdir()):
+                    exchange_dir.rmdir()
                 logger.info(f"Cleared cache for exchange: {exchange}")
         elif date is None:
             # Clear symbol cache
@@ -415,6 +430,9 @@ class IncrementalOBSampler:
             if symbol_dir.exists():
                 for path in symbol_dir.rglob("*.npz"):
                     path.unlink()
+                # Remove symbol directory if empty
+                if not any(symbol_dir.iterdir()):
+                    symbol_dir.rmdir()
                 logger.info(f"Cleared cache for {exchange}/{symbol}")
         else:
             # Clear specific date cache

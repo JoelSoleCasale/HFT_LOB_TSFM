@@ -1,4 +1,6 @@
-exchange: "binance_futures"
+exchange:
+  - binance_futures
+  - binance_spot
 symbol: "BTCUSDT"
 levels: 20
 force_regenerate: false
