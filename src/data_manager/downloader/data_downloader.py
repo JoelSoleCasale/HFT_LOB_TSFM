@@ -43,7 +43,6 @@ class DataDownloader:
     ):
         """
         Downloads data for the given data types, symbols, exchanges, and dates.
-
         It iterates through the Cartesian product of all provided lists.
 
         Args:
@@ -68,9 +67,7 @@ class DataDownloader:
         data_types = [data_type] if isinstance(data_type, str) else data_type
         for dt in data_types:
             if dt not in allowed_types:
-                raise ValueError(
-                    f"Invalid data_type '{dt}'. Must be one of {allowed_types}."
-                )
+                raise ValueError(f"Invalid data_type '{dt}'. Must be one of {allowed_types}.")
 
         symbols = [symbol] if isinstance(symbol, str) else symbol
         exchanges = [exchange] if isinstance(exchange, str) else exchange
@@ -116,18 +113,14 @@ class DataDownloader:
         )
 
         if len(df) == 0:
-            logger.warning(
-                f"No data for {data_type} for {symbol} on {exchange} for {date}"
-            )
+            logger.warning(f"No data for {data_type} for {symbol} on {exchange} for {date}")
             return
 
         if self.relevant_features and data_type in self.relevant_features:
             features_to_keep = self.relevant_features[data_type]
             if features_to_keep:
                 # Filter out columns that are not in the dataframe
-                features_to_keep = [
-                    col for col in features_to_keep if col in df.columns
-                ]
+                features_to_keep = [col for col in features_to_keep if col in df.columns]
                 df = df[features_to_keep]
 
         # check if any string can be converted to float
@@ -143,9 +136,7 @@ class DataDownloader:
             logger.debug(f"Sorting by {reference_ts}")
             df = df.sort(by=reference_ts)
         else:
-            logger.warning(
-                f"Reference timestamp '{reference_ts}' not in columns. Skipping sort."
-            )
+            logger.warning(f"Reference timestamp '{reference_ts}' not in columns. Skipping sort.")
 
         df.write_parquet(output_file)
         logger.success(f"Successfully downloaded and saved to {output_file}")

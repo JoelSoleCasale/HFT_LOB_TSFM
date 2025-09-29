@@ -47,9 +47,7 @@ def parse_args(default_cfg):
 
     parser.add_argument("--log_level", type=str, help="Logging level.")
     parser.add_argument("--data_folder", type=str, help="Base folder for data.")
-    parser.add_argument(
-        "--data_type", type=str, nargs="+", help="Data types to download."
-    )
+    parser.add_argument("--data_type", type=str, nargs="+", help="Data types to download.")
     parser.add_argument("--symbol", type=str, help="Trading symbol.")
     parser.add_argument("--exchange", type=str, help="Exchange.")
     parser.add_argument(
@@ -63,9 +61,7 @@ def parse_args(default_cfg):
         choices=["received_time", "event_time"],
         help="Timestamp reference to use for sorting.",
     )
-    parser.add_argument(
-        "--start_date", type=str, help="Start date in YYYY-MM-DD format."
-    )
+    parser.add_argument("--start_date", type=str, help="Start date in YYYY-MM-DD format.")
     parser.add_argument(
         "--end_date",
         type=str,
@@ -108,9 +104,7 @@ def main() -> None:
     end_date_str = args.end_date
 
     start_date = date.fromisoformat(start_date_str)
-    end_date = (
-        date.today() if end_date_str is None else date.fromisoformat(end_date_str)
-    )
+    end_date = date.today() if end_date_str is None else date.fromisoformat(end_date_str)
 
     days = [
         (start_date + timedelta(days=i)).strftime("%Y-%m-%d")

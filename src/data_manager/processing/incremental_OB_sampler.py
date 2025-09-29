@@ -14,9 +14,7 @@ from utils import iter_slices
 
 class IncrementalOBSampler:
     def __init__(self, cache_root: str | Path):
-        self.cache_root = (
-            Path(cache_root) if isinstance(cache_root, str) else cache_root
-        )
+        self.cache_root = Path(cache_root) if isinstance(cache_root, str) else cache_root
         self.cache_root.mkdir(parents=True, exist_ok=True)
 
     def precompute_full_snapshots(
@@ -71,9 +69,7 @@ class IncrementalOBSampler:
             / f"{date.strftime('%Y-%m-%d')}.parquet"
         )
 
-    def _get_cache_path(
-        self, exchange: str, symbol: str, date: date, levels: int
-    ) -> Path:
+    def _get_cache_path(self, exchange: str, symbol: str, date: date, levels: int) -> Path:
         """Get path to cached full event-sampled data"""
         return (
             self.cache_root
@@ -146,9 +142,7 @@ class IncrementalOBSampler:
         if not df_path.exists():
             raise FileNotFoundError(f"Orderbook data not found at {df_path}")
 
-        df = pl.scan_parquet(str(df_path)).select(
-            [reference_ts, "price", "quantity", "side"]
-        )
+        df = pl.scan_parquet(str(df_path)).select([reference_ts, "price", "quantity", "side"])
         df = df.with_columns(
             [pl.col("price").cast(pl.Float64), pl.col("quantity").cast(pl.Float64)]
         )
@@ -168,9 +162,7 @@ class IncrementalOBSampler:
 
         total_rows = df.select(pl.len()).collect().item()
 
-        with tqdm(
-            total=total_rows, unit="item", unit_scale=True, disable=not verbose
-        ) as pbar:
+        with tqdm(total=total_rows, unit="item", unit_scale=True, disable=not verbose) as pbar:
             for batch_df in iter_slices(
                 df.select([reference_ts, "price", "quantity", "side"]),
                 n_rows=batch_size,
@@ -198,16 +190,12 @@ class IncrementalOBSampler:
                     result[row_num]["timestamp"] = ts
 
                     # Add ask levels
-                    for j, (ask_price, ask_qty) in enumerate(
-                        ob["ask"].items()[:levels]
-                    ):
+                    for j, (ask_price, ask_qty) in enumerate(ob["ask"].items()[:levels]):
                         result[row_num][f"ask{j+1}_price"] = ask_price
                         result[row_num][f"ask{j+1}_qty"] = ask_qty
 
                     # Add bid levels
-                    for j, (bid_price, bid_qty) in enumerate(
-                        ob["bid"].items()[:levels]
-                    ):
+                    for j, (bid_price, bid_qty) in enumerate(ob["bid"].items()[:levels]):
                         result[row_num][f"bid{j+1}_price"] = bid_price
                         result[row_num][f"bid{j+1}_qty"] = bid_qty
 
@@ -252,9 +240,7 @@ class IncrementalOBSampler:
                 return np.load(requested_cache_path)["data"]
 
             # Check for higher-level caches
-            existing_caches = list(
-                cache_dir.glob(f"{date.strftime('%Y-%m-%d')}_L*.npz")
-            )
+            existing_caches = list(cache_dir.glob(f"{date.strftime('%Y-%m-%d')}_L*.npz"))
             higher_caches = []
             for path in existing_caches:
                 try:
@@ -267,9 +253,7 @@ class IncrementalOBSampler:
 
             if higher_caches:
                 # Use the lowest of the higher caches
-                highest_level, highest_cache_path = min(
-                    higher_caches, key=lambda x: x[0]
-                )
+                highest_level, highest_cache_path = min(higher_caches, key=lambda x: x[0])
                 logger.info(
                     f"Found higher-level cache at {highest_cache_path} (L{highest_level}), using it to generate L{levels} data."
                 )
@@ -328,17 +312,13 @@ class IncrementalOBSampler:
             force_regenerate: Force regeneration of cached data
         """
 
-        full_data = self._get_full_event_sampled(
-            exchange, symbol, date, levels, force_regenerate
-        )
+        full_data = self._get_full_event_sampled(exchange, symbol, date, levels, force_regenerate)
 
         if sample_rate <= 1:
             return full_data
 
         sampled_data = full_data[::sample_rate]
-        logger.info(
-            f"Sampled {len(sampled_data)} rows from {len(full_data)} original rows"
-        )
+        logger.info(f"Sampled {len(sampled_data)} rows from {len(full_data)} original rows")
         return sampled_data
 
     def sample_by_time(
@@ -362,9 +342,7 @@ class IncrementalOBSampler:
             force_regenerate: Force regeneration of cached data
         """
 
-        full_data = self._get_full_event_sampled(
-            exchange, symbol, date, levels, force_regenerate
-        )
+        full_data = self._get_full_event_sampled(exchange, symbol, date, levels, force_regenerate)
 
         if time_delta_ns <= 0 or len(full_data) == 0:
             return full_data
@@ -374,9 +352,7 @@ class IncrementalOBSampler:
 
         # Calculate adjusted timestamps
         df = df.with_columns(
-            (pl.col("timestamp") - pl.col("timestamp") % time_delta_ns).alias(
-                "timestamp"
-            )
+            (pl.col("timestamp") - pl.col("timestamp") % time_delta_ns).alias("timestamp")
         )
 
         # Group by adjusted timestamp and take last row from each group
@@ -389,9 +365,7 @@ class IncrementalOBSampler:
         for col_name in full_data.dtype.names:
             result_array[col_name] = result_df[col_name].to_numpy()
 
-        logger.info(
-            f"Sampled {len(result_array)} rows from {len(full_data)} original rows"
-        )
+        logger.info(f"Sampled {len(result_array)} rows from {len(full_data)} original rows")
         return result_array
 
     def clear_cache(self, exchange: str = None, symbol: str = None, date: date = None):

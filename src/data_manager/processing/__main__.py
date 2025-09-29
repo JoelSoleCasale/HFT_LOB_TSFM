@@ -11,9 +11,7 @@ from data_manager.processing.incremental_OB_sampler import IncrementalOBSampler
 def load_config():
     """Loads configuration from YAML files."""
     config_path = ROOT_DIR / "config" / "config.yaml"
-    processing_config_path = (
-        ROOT_DIR / "config" / "data_manager" / "processing" / "default.yaml"
-    )
+    processing_config_path = ROOT_DIR / "config" / "data_manager" / "processing" / "default.yaml"
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     with open(processing_config_path, "r") as f:
@@ -44,9 +42,7 @@ def parse_args(default_cfg):
     )
 
     parser.add_argument("--log_level", type=str, help="Logging level.")
-    parser.add_argument(
-        "--cache_root", type=str, help="Root folder for data and cache."
-    )
+    parser.add_argument("--cache_root", type=str, help="Root folder for data and cache.")
     parser.add_argument("--exchange", type=str, nargs="+", help="Exchange(s).")
     parser.add_argument("--symbol", type=str, nargs="+", help="Trading symbol(s).")
     parser.add_argument("--levels", type=int, help="Number of order book levels.")
@@ -55,9 +51,7 @@ def parse_args(default_cfg):
         action=argparse.BooleanOptionalAction,
         help="If true, force regeneration of cached data.",
     )
-    parser.add_argument(
-        "--start_date", type=str, help="Start date in YYYY-MM-DD format."
-    )
+    parser.add_argument("--start_date", type=str, help="Start date in YYYY-MM-DD format.")
     parser.add_argument(
         "--end_date",
         type=str,
@@ -84,9 +78,7 @@ def main() -> None:
 
     # Handle dates
     start_date = date.fromisoformat(args.start_date)
-    end_date = (
-        date.today() if args.end_date is None else date.fromisoformat(args.end_date)
-    )
+    end_date = date.today() if args.end_date is None else date.fromisoformat(args.end_date)
 
     sampler.precompute_full_snapshots(
         exchange=args.exchange,

@@ -73,3 +73,6 @@ filterwarnings = [
     "ignore::PendingDeprecationWarning",
     "ignore:Row orientation inferred during DataFrame construction:UserWarning",
 ]
+
+[tool.black]
+line-length = 99
