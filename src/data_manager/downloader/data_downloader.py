@@ -6,6 +6,24 @@ import polars as pl
 import yaml
 from definitions import ROOT_DIR
 from typing import Literal
+from data_manager.cache_manager import cache_func
+from dataclasses import dataclass
+
+
+@dataclass
+class DataRequest:
+    """
+    A class representing a data request for downloading cryptocurrency data.
+    """
+
+    data_type: str
+    symbol: str
+    exchange: str
+    date: str
+
+    def get_path(self) -> Path:
+        """Return parameters to construct cache path."""
+        return Path(self.data_type) / self.exchange / self.symbol / f"{self.date}.parquet"
 
 
 class DataDownloader:
@@ -31,6 +49,11 @@ class DataDownloader:
         if relevant_features_path:
             with open(relevant_features_path, "r") as f:
                 self.relevant_features = yaml.safe_load(f)
+
+        # Apply cache decorator to the download function
+        self._cached_download_single = cache_func(
+            self._download_single_uncached, self.base_folder, load_cached_data=False
+        )
 
     def download_data(
         self,
@@ -75,49 +98,59 @@ class DataDownloader:
 
         for dt, sym, ex, d in itertools.product(data_types, symbols, exchanges, dates):
             try:
-                self._download_single(dt, sym, ex, d, skip_existing, reference_ts)
+                request = DataRequest(data_type=dt, symbol=sym, exchange=ex, date=d)
+                if not skip_existing:
+                    _, from_cache = (
+                        self._download_single_uncached(request, reference_ts=reference_ts),
+                        False,
+                    )
+                else:
+                    _, from_cache = self._cached_download_single(
+                        request, reference_ts=reference_ts
+                    )
+
+                if from_cache:
+                    logger.info(f"Loaded from cache: {self.base_folder / request.get_path()}")
+                else:
+                    logger.success(
+                        f"Downloaded and cached: {self.base_folder / request.get_path()}"
+                    )
+
             except Exception as e:
                 logger.error(f"Failed to download {dt} for {sym} on {ex} for {d}: {e}")
 
-    def _download_single(
+    def _download_single_uncached(
         self,
-        data_type: str,
-        symbol: str,
-        exchange: str,
-        date: str,
-        skip_existing: bool,
-        reference_ts: Literal["received_time", "event_time"],
-    ):
+        request: DataRequest,
+        reference_ts: Literal["received_time", "event_time"] = "received_time",
+    ) -> pl.DataFrame | None:
         """
-        Downloads a single data file.
+        Downloads a single data file and returns the DataFrame.
+        This method is wrapped by the cache_func decorator.
         """
-        output_dir = self.base_folder / data_type / exchange / symbol
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{date}.parquet"
+        logger.info(
+            f"Downloading {request.data_type} for {request.symbol} on {request.exchange} for {request.date}"
+        )
 
-        if skip_existing and output_file.exists():
-            logger.info(f"Skipping existing file: {output_file}")
-            return
-
-        logger.info(f"Downloading {data_type} for {symbol} on {exchange} for {date}")
-
-        download_function = getattr(chd, f"get_{data_type}")
+        download_function = getattr(chd, f"get_{request.data_type}")
 
         df: pl.DataFrame = pl.DataFrame(
             download_function(
-                symbol=symbol,
-                exchange=exchange,
-                start_date=date,
-                end_date=date,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                start_date=request.date,
+                end_date=request.date,
             )
         )
 
         if len(df) == 0:
-            logger.warning(f"No data for {data_type} for {symbol} on {exchange} for {date}")
-            return
+            logger.warning(
+                f"No data for {request.data_type} for {request.symbol} on {request.exchange} for {request.date}"
+            )
+            return None
 
-        if self.relevant_features and data_type in self.relevant_features:
-            features_to_keep = self.relevant_features[data_type]
+        if self.relevant_features and request.data_type in self.relevant_features:
+            features_to_keep = self.relevant_features[request.data_type]
             if features_to_keep:
                 # Filter out columns that are not in the dataframe
                 features_to_keep = [col for col in features_to_keep if col in df.columns]
@@ -138,8 +171,30 @@ class DataDownloader:
         else:
             logger.warning(f"Reference timestamp '{reference_ts}' not in columns. Skipping sort.")
 
-        df.write_parquet(output_file)
-        logger.success(f"Successfully downloaded and saved to {output_file}")
+        return df
 
-        # remove dataframe from memory
-        del df
+    def get_data(
+        self,
+        data_type: str,
+        symbol: str,
+        exchange: str,
+        date: str,
+        reference_ts: Literal["received_time", "event_time"] = "received_time",
+    ) -> tuple[pl.DataFrame, bool]:
+        """
+        Get data for a single request, either from cache or by downloading.
+
+        Args:
+            data_type (str): The type of data to get.
+            symbol (str): The trading symbol.
+            exchange (str): The exchange.
+            date (str): The date in 'YYYY-MM-DD' format.
+            reference_ts (Literal["received_time", "event_time"], optional): The timestamp reference to use.
+                Defaults to "received_time".
+
+        Returns:
+            tuple[pl.DataFrame, bool]: A tuple containing the DataFrame and a boolean indicating
+                if the data was loaded from cache (True) or downloaded (False).
+        """
+        request = DataRequest(data_type=data_type, symbol=symbol, exchange=exchange, date=date)
+        return self._cached_download_single(request, reference_ts=reference_ts)
