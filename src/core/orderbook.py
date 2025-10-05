@@ -198,7 +198,6 @@ class OrderBook:
             "timestamp", every=f"{time_delta}i", closed="right", label="right"
         ).agg(pl.all().last())
 
-        # Ensure all 10s are present by upsampling
         if interpolate and res_df.height > 1:
             res_df = res_df.upsample(time_column="timestamp", every=f"{time_delta}i").fill_null(
                 strategy="forward"

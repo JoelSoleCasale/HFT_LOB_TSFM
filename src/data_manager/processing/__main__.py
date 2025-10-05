@@ -5,7 +5,7 @@ import argparse
 import sys
 
 from definitions import ROOT_DIR
-from data_manager.processing.incremental_OB_sampler import IncrementalOBSampler
+from data_manager.processing.incremental_orderbook_sampler import IncrementalOrderBookSampler
 
 
 def load_config():
@@ -74,7 +74,7 @@ def main() -> None:
 
     logger.debug("Final Configuration:\n" + yaml.dump(vars(args)))
 
-    sampler = IncrementalOBSampler(cache_root=args.cache_root)
+    sampler = IncrementalOrderBookSampler(cache_root=args.cache_root)
 
     # Handle dates
     start_date = date.fromisoformat(args.start_date)

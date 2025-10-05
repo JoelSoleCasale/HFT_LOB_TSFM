@@ -1,29 +1,14 @@
 import itertools
 from pathlib import Path
+from datetime import datetime
 from loguru import logger
 import cryptohftdata as chd
 import polars as pl
 import yaml
 from definitions import ROOT_DIR
 from typing import Literal
-from data_manager.cache_manager import cache_func
-from dataclasses import dataclass
-
-
-@dataclass
-class DataRequest:
-    """
-    A class representing a data request for downloading cryptocurrency data.
-    """
-
-    data_type: str
-    symbol: str
-    exchange: str
-    date: str
-
-    def get_path(self) -> Path:
-        """Return parameters to construct cache path."""
-        return Path(self.data_type) / self.exchange / self.symbol / f"{self.date}.parquet"
+from utils import cache_func
+from data_manager.downloader.data_downloader_request import RawDataRequest
 
 
 class DataDownloader:
@@ -98,7 +83,9 @@ class DataDownloader:
 
         for dt, sym, ex, d in itertools.product(data_types, symbols, exchanges, dates):
             try:
-                request = DataRequest(data_type=dt, symbol=sym, exchange=ex, date=d)
+                # Convert string date to date object
+                date_obj = datetime.strptime(d, "%Y-%m-%d").date()
+                request = RawDataRequest(data_type=dt, symbol=sym, exchange=ex, date=date_obj)
                 if not skip_existing:
                     _, from_cache = (
                         self._download_single_uncached(request, reference_ts=reference_ts),
@@ -121,7 +108,7 @@ class DataDownloader:
 
     def _download_single_uncached(
         self,
-        request: DataRequest,
+        request: RawDataRequest,
         reference_ts: Literal["received_time", "event_time"] = "received_time",
     ) -> pl.DataFrame | None:
         """
@@ -134,12 +121,14 @@ class DataDownloader:
 
         download_function = getattr(chd, f"get_{request.data_type}")
 
+        # Convert date back to string for the API call
+        date_str = request.date.strftime("%Y-%m-%d")
         df: pl.DataFrame = pl.DataFrame(
             download_function(
                 symbol=request.symbol,
                 exchange=request.exchange,
-                start_date=request.date,
-                end_date=request.date,
+                start_date=date_str,
+                end_date=date_str,
             )
         )
 
@@ -196,5 +185,9 @@ class DataDownloader:
             tuple[pl.DataFrame, bool]: A tuple containing the DataFrame and a boolean indicating
                 if the data was loaded from cache (True) or downloaded (False).
         """
-        request = DataRequest(data_type=data_type, symbol=symbol, exchange=exchange, date=date)
+        # Convert string date to date object
+        date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+        request = RawDataRequest(
+            data_type=data_type, symbol=symbol, exchange=exchange, date=date_obj
+        )
         return self._cached_download_single(request, reference_ts=reference_ts)
