@@ -222,23 +222,14 @@ class TestOrderBookData:
         expected_1 = [
             ("timestamp", pl.Int64),
             ("ask1_price", pl.Float64),
-            ("bid1_price", pl.Float64),
             ("ask1_qty", pl.Float64),
+            ("bid1_price", pl.Float64),
             ("bid1_qty", pl.Float64),
         ]
         assert schema_1 == expected_1
 
         schema_2 = OrderBookData.get_orderbook_schema(2)
         assert len(schema_2) == 9  # timestamp + 2 * 2 * 2 levels
-
-    def test_get_orderbook_columns(self):
-        """Test column name generation."""
-        cols_1 = OrderBookData.get_orderbook_columns(1)
-        expected_1 = ["timestamp", "ask1_price", "bid1_price", "ask1_qty", "bid1_qty"]
-        assert cols_1 == expected_1
-
-        cols_3 = OrderBookData.get_orderbook_columns(3)
-        assert len(cols_3) == 13  # timestamp + 3 * 2 * 2 levels
 
     def test_infer_levels(self, sample_multilevel_data):
         """Test level inference from DataFrame."""

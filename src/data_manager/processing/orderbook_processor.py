@@ -3,13 +3,11 @@
 from datetime import date, timedelta
 from pathlib import Path
 import polars as pl
-import numpy as np
-import warnings
 from tqdm import tqdm
 from loguru import logger
 
 from utils import iter_slices
-from core.orderbook import OrderBook, OrderBookSnapshot, OrderBookData
+from core.orderbook import OrderBook, OrderBookSnapshot
 from data_manager.downloader.data_downloader_request import RawDataRequest
 from data_manager.processing.orderbook_request import OrderBookSnapshotRequest
 
@@ -36,23 +34,14 @@ class OrderBookProcessor:
         if prev_day_path.exists():
             logger.info(f"Initializing orderbook from previous day: {prev_day_path}")
             df_prev = (
-                pl.scan_parquet(str(prev_day_path))
+                pl.scan_parquet(prev_day_path)
                 .select(["price", "quantity", "side"])
-                .with_columns(
-                    [
-                        pl.col("price").cast(pl.Float64),
-                        pl.col("quantity").cast(pl.Float64),
-                    ]
-                )
                 .tail(ob_init_prev_day_rows)
                 .collect()
             )
 
             for price, quantity, side in df_prev.iter_rows():
-                if quantity == 0:
-                    ob[side].pop(price, None)
-                else:
-                    ob[side][price] = quantity
+                ob.update(side, price, quantity)
 
         return ob
 
@@ -76,11 +65,8 @@ class OrderBookProcessor:
         if not raw_data_path.exists():
             raise FileNotFoundError(f"Orderbook data not found at {raw_data_path}")
 
-        df = pl.scan_parquet(str(raw_data_path)).select(
+        df = pl.scan_parquet(raw_data_path).select(
             [request.reference_ts, "price", "quantity", "side"]
-        )
-        df = df.with_columns(
-            [pl.col("price").cast(pl.Float64), pl.col("quantity").cast(pl.Float64)]
         )
 
         # Initialize orderbook from previous day if available
@@ -88,21 +74,8 @@ class OrderBookProcessor:
             request.exchange, request.symbol, request.date, request.ob_init_prev_day_rows
         )
 
-        formats_map = {
-            pl.Int64: np.int64,
-            pl.Float64: np.float64,
-        }
-        dtype = [
-            (name, formats_map[pl_type])
-            for name, pl_type in OrderBookData.get_orderbook_schema(request.levels)
-        ]
-
-        capacity = 1_000_000
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning)
-            result = np.full(capacity, np.nan, dtype=dtype)
-        row_num = 0
-        prev_ts = 0
+        result = []
+        prev_ts = df.select(request.reference_ts).head(1).collect().item()
 
         total_rows = df.select(pl.len()).collect().item()
 
@@ -112,47 +85,41 @@ class OrderBookProcessor:
                 n_rows=request.batch_size,
             ):
                 for ts, price, quantity, side in batch_df.iter_rows():
-                    ob.update(side, price, quantity)
 
                     if ts == prev_ts:
+                        ob.update(side, price, quantity)
                         continue
 
                     assert ts >= prev_ts, "Timestamps should be non-decreasing"
 
-                    if row_num >= capacity:
-                        new_capacity = capacity * 2
-                        with warnings.catch_warnings():
-                            warnings.filterwarnings("ignore", category=RuntimeWarning)
-                            new_result = np.full(new_capacity, np.nan, dtype=dtype)
-                        new_result[:capacity] = result
-                        result = new_result
-                        capacity = new_capacity
+                    # All events for previous timestamp processed, record snapshot
+                    row_data = ob.get_top_levels(request.levels)
+                    row_data["timestamp"] = prev_ts
+                    result.append(row_data)
 
-                    result[row_num]["timestamp"] = ts
-
-                    # Add ask levels
-                    for j, (ask_price, ask_qty) in enumerate(ob.ask.items()[: request.levels]):
-                        result[row_num][f"ask{j+1}_price"] = ask_price
-                        result[row_num][f"ask{j+1}_qty"] = ask_qty
-
-                    # Add bid levels
-                    for j, (bid_price, bid_qty) in enumerate(ob.bid.items()[: request.levels]):
-                        result[row_num][f"bid{j+1}_price"] = bid_price
-                        result[row_num][f"bid{j+1}_qty"] = bid_qty
+                    # Now process the current event
+                    ob.update(side, price, quantity)
 
                     prev_ts = ts
 
-                    # Skip if identical to previous row (except timestamp)
-                    if (
-                        row_num > 0
-                        and tuple(result[row_num])[1:] == tuple(result[row_num - 1])[1:]
-                    ):
-                        continue
-
-                    row_num += 1
-
                 pbar.update(batch_df.height)
 
-        final_result = result[:row_num]
-        logger.info(f"Generated {len(final_result)} orderbook snapshots")
-        return OrderBook(pl.DataFrame(final_result))
+        # Record final snapshot
+        row_data = ob.get_top_levels(request.levels)
+        row_data["timestamp"] = prev_ts
+        result.append(row_data)
+
+        logger.info(f"Generated {len(result)} orderbook snapshots")
+
+        df = pl.DataFrame(result)
+
+        # remove duplicated rows (rows identical to previous row)
+        float_cols = [c for c in df.columns if c != "timestamp"]
+
+        mask = pl.any_horizontal([pl.col(col) != pl.col(col).shift(1) for col in float_cols]) | (
+            pl.arange(0, pl.len()) == 0
+        )
+
+        df = df.filter(mask)
+
+        return OrderBook(df)

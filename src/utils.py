@@ -1,8 +1,19 @@
 import polars as pl
+import numpy as np
 from typing import Iterator
 from pathlib import Path
 from typing import Callable
 from custom_types import DataRequest
+from hftbacktest import (
+    BUY_EVENT,
+    SELL_EVENT,
+    DEPTH_EVENT,
+    DEPTH_SNAPSHOT_EVENT,
+    EXCH_EVENT,
+    LOCAL_EVENT,
+    event_dtype,
+)
+from hftbacktest.data import validate_event_order
 
 
 def iter_slices(
@@ -49,3 +60,32 @@ def cache_func(
             return result, False
 
     return wrapper
+
+
+def get_hftbacktest_array(df: pl.DataFrame) -> np.ndarray:
+    """
+    Convert a Polars DataFrame representing an incremental orderbook event stream
+    into a structured NumPy array compatible with hftbacktest.
+    """
+    arr = np.zeros(len(df), dtype=event_dtype)
+
+    # Use vectorized operations to determine event types
+    is_snapshot = (df["event_type"] == "snapshot").to_numpy()
+    is_ask = (df["side"] == "ask").to_numpy()
+
+    # Set event type values with numpy's where (no loops)
+    arr["ev"] = np.where(
+        is_snapshot,
+        DEPTH_SNAPSHOT_EVENT,
+        DEPTH_EVENT | np.where(is_ask, SELL_EVENT, BUY_EVENT) | EXCH_EVENT | LOCAL_EVENT,
+    )
+
+    # Directly set other fields from the dataframe
+    arr["exch_ts"] = df["event_time"].to_numpy()
+    arr["local_ts"] = df["received_time"].to_numpy()
+    arr["px"] = df["price"].cast(pl.Float64).to_numpy()
+    arr["qty"] = df["quantity"].cast(pl.Float64).to_numpy()
+
+    validate_event_order(arr)
+
+    return arr

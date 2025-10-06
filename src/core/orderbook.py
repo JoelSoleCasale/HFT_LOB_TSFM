@@ -22,6 +22,21 @@ class OrderBookSnapshot:
         else:
             self[side][price] = quantity
 
+    def get_top_levels(self, levels: int) -> dict[str, float]:
+        """Get the top N levels of the orderbook."""
+        res = {}
+        # Add ask levels
+        for j, (ask_price, ask_qty) in enumerate(self.ask.items()[:levels]):
+            res[f"ask{j+1}_price"] = ask_price
+            res[f"ask{j+1}_qty"] = ask_qty
+
+        # Add bid levels
+        for j, (bid_price, bid_qty) in enumerate(self.bid.items()[:levels]):
+            res[f"bid{j+1}_price"] = bid_price
+            res[f"bid{j+1}_qty"] = bid_qty
+
+        return res
+
 
 class OrderBookData:
     """Immutable data container for orderbook snapshots."""
@@ -29,11 +44,12 @@ class OrderBookData:
     def __init__(self, data: pl.DataFrame | None = None, levels: int | None = None):
         if data is not None:
             self._validate_structure(data)
-            self._df = data.set_sorted("timestamp")
             self._levels = OrderBookData._infer_levels(data)
+            col_order = self.get_orderbook_columns(self._levels)
+            self._df = data.select(col_order).set_sorted("timestamp")
         elif levels is not None:
-            self._df = pl.DataFrame(schema=self.get_orderbook_schema(levels))
             self._levels = levels
+            self._df = pl.DataFrame(schema=self.get_orderbook_schema(levels))
         else:
             raise ValueError("Either data or levels must be provided")
 
@@ -52,9 +68,9 @@ class OrderBookData:
         schema.extend(
             [
                 (f"{s}{i}_{t}", pl.Float64)
-                for t in ["price", "qty"]
                 for i in range(1, levels + 1)
                 for s in ["ask", "bid"]
+                for t in ["price", "qty"]
             ]
         )
         return schema
