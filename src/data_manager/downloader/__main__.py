@@ -89,12 +89,6 @@ def main() -> None:
 
     logger.debug("Final Configuration:\n" + yaml.dump(vars(args)))
 
-    load_dotenv()
-    api_key = os.getenv("CRYPTOHFTDATA_API_KEY")
-    if not api_key:
-        logger.warning("CRYPTOHFTDATA_API_KEY environment variable not set.")
-    chd.configure_client(api_key=api_key)
-
     downloader = DataDownloader(
         base_folder=args.data_folder, relevant_features_path=args.relevant_features_path
     )
