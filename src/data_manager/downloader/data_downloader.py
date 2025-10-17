@@ -16,7 +16,7 @@ import os
 
 class DataDownloader:
     """
-    A class to download high-frequency cryptocurrency data using the cryptohftdata library.
+    A class to download high-frequency cryptocurrency data from the cryptohftdata API.
     """
 
     def __init__(

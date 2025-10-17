@@ -3,6 +3,7 @@ import numpy as np
 from typing import Iterator
 from pathlib import Path
 from typing import Callable
+from datetime import timedelta, date
 from custom_types import DataRequest
 from hftbacktest import (
     BUY_EVENT,
@@ -60,6 +61,14 @@ def cache_func(
             return result, False
 
     return wrapper
+
+
+def date_range(start_date: date, end_date: date) -> Iterator[date]:
+    """Generate dates from start_date to end_date inclusive."""
+    current_date = start_date
+    while current_date <= end_date:
+        yield current_date
+        current_date += timedelta(days=1)
 
 
 def get_hftbacktest_array(df: pl.DataFrame) -> np.ndarray:

@@ -1,13 +1,10 @@
 import yaml
 from loguru import logger
-import os
 from datetime import date, timedelta
 import argparse
 
 from data_manager.downloader.data_downloader import DataDownloader
-import cryptohftdata as chd
 
-from dotenv import load_dotenv
 from definitions import ROOT_DIR
 import sys
 

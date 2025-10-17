@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "cryptohftdata>=0.1.4",
     "fastparquet>=2024.11.0",
     "hftbacktest>=2.3.0",
     "hvplot>=0.12.1",
@@ -15,7 +14,6 @@ dependencies = [
     "matplotlib>=3.10.6",
     "numba>=0.62.0",
     "numpy>=2.2.6",
-    "pandas>=2.3.2",
     "poethepoet>=0.37.0",
     "polars>=1.33.1",
     "pyarrow>=21.0.0",
@@ -24,6 +22,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "sortedcontainers>=2.4.0",
     "tqdm>=4.67.1",
+    "zstandard>=0.25.0",
 ]
 
 [project.optional-dependencies]

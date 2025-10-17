@@ -2,9 +2,8 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 import itertools
-from pandas import date_range
 from loguru import logger
-
+from utils import date_range
 from core.orderbook import OrderBook
 from data_manager.processing.orderbook_request import OrderBookSnapshotRequest
 from data_manager.processing.orderbook_cache_manager import OrderBookCacheManager
@@ -49,7 +48,7 @@ class IncrementalOrderBookSampler:
         exchanges = [exchange] if isinstance(exchange, str) else exchange
         symbols = [symbol] if isinstance(symbol, str) else symbol
 
-        dates = list(date_range(start_date, end_date))
+        dates = date_range(start_date, end_date)
 
         for ex, sym, d in itertools.product(exchanges, symbols, dates):
             logger.info(f"Processing data for {ex}/{sym} on {d.strftime('%Y-%m-%d')}")
