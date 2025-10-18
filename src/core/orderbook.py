@@ -41,7 +41,12 @@ class OrderBookSnapshot:
 class OrderBookData:
     """Immutable data container for orderbook snapshots."""
 
-    def __init__(self, data: pl.DataFrame | None = None, levels: int | None = None):
+    def __init__(
+        self,
+        data: pl.DataFrame | None = None,
+        levels: int | None = None,
+        allow_duplicates: bool = False,
+    ):
         if data is not None:
             self._validate_structure(data)
             self._levels = OrderBookData._infer_levels(data)
@@ -52,6 +57,8 @@ class OrderBookData:
             self._df = pl.DataFrame(schema=self.get_orderbook_schema(levels))
         else:
             raise ValueError("Either data or levels must be provided")
+        if not allow_duplicates:
+            self._remove_duplicated_rows()
 
     @property
     def df(self) -> pl.DataFrame:
@@ -104,6 +111,16 @@ class OrderBookData:
                 )
         if not df["timestamp"].is_sorted():
             raise ValueError("DataFrame 'timestamp' column is not sorted.")
+
+    def _remove_duplicated_rows(self) -> None:
+        """Remove duplicated rows (rows identical to previous row) in place."""
+        float_cols = [c for c in self._df.columns if c != "timestamp"]
+
+        mask = pl.any_horizontal([pl.col(col) != pl.col(col).shift(1) for col in float_cols]) | (
+            pl.arange(0, pl.len()) == 0
+        )
+
+        self._df = self._df.filter(mask)
 
 
 class OrderBook:
@@ -219,4 +236,4 @@ class OrderBook:
                 strategy="forward"
             )
 
-        return OrderBook(res_df)
+        return OrderBook(OrderBookData(res_df, allow_duplicates=True))

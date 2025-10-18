@@ -283,6 +283,108 @@ class TestOrderBookIntegration:
         assert ob_2level.df["ask1_price"].equals(ob_1level.df["ask1_price"])
         assert ob_2level.df["bid1_price"].equals(ob_1level.df["bid1_price"])
 
+    def test_select_levels_removes_duplicates_when_deeper_levels_change(self):
+        """Test that select_levels removes duplicated rows when only deeper levels change.
+
+        When an orderbook update only affects deeper levels (e.g., level 3) and we
+        select fewer levels (e.g., level 1-2), the resulting orderbook should remove
+        the duplicated row since there was no actual update at the selected levels.
+        """
+        # Create 3-level orderbook with 3 snapshots
+        # Snapshot 1 (ts=1000): Initial state
+        # Snapshot 2 (ts=1001): Only level 3 changes
+        # Snapshot 3 (ts=1002): Level 1 and 2 change
+        data = {
+            "timestamp": [1000, 1001, 1002],
+            # Level 1 - same for first two snapshots
+            "ask1_price": [50001.0, 50001.0, 50002.0],
+            "ask1_qty": [1.0, 1.0, 1.5],
+            "bid1_price": [50000.0, 50000.0, 50001.0],
+            "bid1_qty": [1.5, 1.5, 2.0],
+            # Level 2 - same for first two snapshots
+            "ask2_price": [50002.0, 50002.0, 50003.0],
+            "ask2_qty": [0.8, 0.8, 1.2],
+            "bid2_price": [49999.0, 49999.0, 50000.0],
+            "bid2_qty": [1.2, 1.2, 1.8],
+            # Level 3 - CHANGES between first and second snapshot
+            "ask3_price": [50003.0, 50003.5, 50004.0],
+            "ask3_qty": [0.5, 0.9, 1.1],
+            "bid3_price": [49998.0, 49997.5, 49999.0],
+            "bid3_qty": [0.7, 1.3, 1.5],
+        }
+        df = pl.DataFrame(data)
+
+        ob_3level = OrderBook(data=df)
+
+        # Verify we start with 3 snapshots at 3 levels
+        assert len(ob_3level) == 3
+        assert ob_3level.levels == 3
+
+        # Select only 2 levels
+        ob_2level = ob_3level.select_levels(2)
+
+        # After selecting 2 levels, the second snapshot should be removed
+        # because levels 1-2 are identical between timestamp 1000 and 1001
+        assert len(ob_2level) == 2
+        assert ob_2level.levels == 2
+
+        # Verify that the remaining timestamps are 1000 and 1002
+        timestamps = ob_2level.df["timestamp"].to_list()
+        assert timestamps == [1000, 1002]
+
+        # Select only 1 level
+        ob_1level = ob_3level.select_levels(1)
+
+        # After selecting 1 level, the second snapshot should also be removed
+        # (since level 1 is identical between timestamp 1000 and 1001)
+        assert len(ob_1level) == 2
+        assert ob_1level.levels == 1
+
+        # Verify that the remaining timestamps are still 1000 and 1002
+        timestamps = ob_1level.df["timestamp"].to_list()
+        assert timestamps == [1000, 1002]
+
+        # Verify data integrity - level 1 values at ts=1000 should match original
+        original_level1_1000 = ob_3level.df.filter(pl.col("timestamp") == 1000).select(
+            ["ask1_price", "ask1_qty", "bid1_price", "bid1_qty"]
+        )
+        reduced_level1_1000 = ob_1level.df.filter(pl.col("timestamp") == 1000).select(
+            ["ask1_price", "ask1_qty", "bid1_price", "bid1_qty"]
+        )
+        assert original_level1_1000.equals(reduced_level1_1000)
+
+    def test_select_levels_preserves_all_rows_when_selected_levels_always_change(self):
+        """Test that select_levels keeps all rows when updates occur at selected levels.
+
+        This is a complementary test to verify that rows are NOT removed when
+        the selected levels actually have changes.
+        """
+        # Create 2-level orderbook where level 1 changes at every snapshot
+        data = {
+            "timestamp": [1000, 1001, 1002],
+            # Level 1 - changes at every snapshot
+            "ask1_price": [50001.0, 50002.0, 50003.0],
+            "ask1_qty": [1.0, 1.5, 2.0],
+            "bid1_price": [50000.0, 50001.0, 50002.0],
+            "bid1_qty": [1.5, 2.0, 2.5],
+            # Level 2 - also changes at every snapshot
+            "ask2_price": [50002.0, 50003.0, 50004.0],
+            "ask2_qty": [0.8, 1.2, 1.8],
+            "bid2_price": [49999.0, 50000.0, 50001.0],
+            "bid2_qty": [1.2, 1.8, 2.2],
+        }
+        df = pl.DataFrame(data)
+
+        ob_2level = OrderBook(data=df)
+        ob_1level = ob_2level.select_levels(1)
+
+        # All snapshots should be preserved since level 1 changes at each timestamp
+        assert len(ob_1level) == 3
+        assert len(ob_2level) == 3
+
+        # Timestamps should be unchanged
+        assert ob_1level.df["timestamp"].to_list() == [1000, 1001, 1002]
+
     def test_realistic_market_scenario_simulation(self):
         """Simulate a realistic market scenario with multiple operations."""
         # Start with empty orderbook

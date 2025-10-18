@@ -380,7 +380,7 @@ class TestDataManagerIntegrationWithRealData:
             assert any("higher-level cache" in call for call in log_calls)
 
         # Verify L5 data is correct subset of L10
-        assert len(result_l5.df) == len(result_l10.df)
+        assert len(result_l5.df) <= len(result_l10.df)
         assert "ask6_price" not in result_l5.df.columns
         assert "ask5_price" in result_l5.df.columns
 
