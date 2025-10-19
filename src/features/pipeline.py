@@ -1,9 +1,7 @@
 """Pipeline classes for composing extractors"""
 
-from typing import List, Optional
 import polars as pl
 from features.base.feature_extractor import BaseFeatureExtractor
-from features.base.label_extractor import BaseLabelExtractor
 from features.base.input_space import InputSpace
 
 
@@ -11,7 +9,7 @@ class FeaturePipeline:
     """Compose multiple feature extractors"""
 
     def __init__(self):
-        self.extractors: List[BaseFeatureExtractor] = []
+        self.extractors: list[BaseFeatureExtractor] = []
 
     def add_extractor(self, extractor: BaseFeatureExtractor):
         self.extractors.append(extractor)
@@ -33,27 +31,11 @@ class FeaturePipeline:
             result = result.join(feat, on="timestamp", how="left")
         return result
 
-    def get_all_feature_names(self) -> List[str]:
+    def get_all_feature_names(self) -> list[str]:
         return [name for ext in self.extractors for name in ext.get_feature_names()]
 
-    def get_all_dependencies(self) -> List[str]:
+    def get_all_dependencies(self) -> list[str]:
         deps = set()
         for ext in self.extractors:
             deps.update(ext.get_dependencies())
         return list(deps)
-
-
-class LabelPipeline:
-    """Compose label extractors (typically just one)"""
-
-    def __init__(self, extractor: BaseLabelExtractor):
-        self.extractor = extractor
-
-    def extract(self, input_space: InputSpace) -> pl.LazyFrame:
-        return self.extractor.extract(input_space)
-
-    def get_label_names(self) -> List[str]:
-        return self.extractor.get_label_names()
-
-    def get_lookahead_window(self) -> Optional[int]:
-        return self.extractor.lookahead_window

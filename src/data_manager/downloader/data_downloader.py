@@ -274,7 +274,7 @@ class DataDownloader:
         exchange: str,
         date: str | date,
         reference_ts: Literal["received_time", "event_time"] = "received_time",
-    ) -> pl.DataFrame:
+    ) -> pl.LazyFrame:
         """
         Get data for a single request by reading from disk.
 
@@ -287,7 +287,7 @@ class DataDownloader:
                 Defaults to "received_time". This parameter is used if the file doesn't exist and needs to be downloaded.
 
         Returns:
-            pl.DataFrame: The requested data as a DataFrame.
+            pl.LazyFrame: The requested data as a DataFrame.
 
         Raises:
             FileNotFoundError: If the file doesn't exist on disk.
@@ -308,5 +308,5 @@ class DataDownloader:
                 raise FileNotFoundError(f"Failed to download or file does not exist: {file_path}")
 
         logger.debug(f"Reading from disk: {file_path}")
-        df = pl.read_parquet(file_path)
+        df = pl.scan_parquet(file_path)
         return df

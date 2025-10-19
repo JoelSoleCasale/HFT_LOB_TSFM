@@ -6,36 +6,19 @@ import polars as pl
 from features.base.input_space import InputSpace
 
 
-@FeatureExtractorRegistry.register("orderbook_imbalance")
-class OrderbookImbalanceFeatures(BaseFeatureExtractor):
-    """Extract orderbook imbalance features"""
+@FeatureExtractorRegistry.register("mid_price")
+class MidPriceFeatures(BaseFeatureExtractor):
+    """Extract mid-price features from orderbook"""
 
     def __init__(self, config=None):
         super().__init__(config)
-        self.levels = self.config.get("levels", [1, 5, 10])
         self.dependencies = ["orderbook_snapshots"]
-        self.feature_names = [f"imbalance_L{level}" for level in self.levels]
+        self.feature_names = ["mid_price"]
 
     def extract(self, input_space: InputSpace) -> pl.LazyFrame:
         self.validate_input(input_space)
-        features = []
-        for level in self.levels:
-            bid_volume = (
-                input_space.orderbook_snapshots.filter(pl.col("side") == "bid")
-                .head(level)
-                .select(pl.col("quantity").sum())
-            )
-            ask_volume = (
-                input_space.orderbook_snapshots.filter(pl.col("side") == "ask")
-                .head(level)
-                .select(pl.col("quantity").sum())
-            )
-            imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
-            features.append(imbalance.alias(f"imbalance_L{level}"))
-        return pl.concat(features, how="horizontal")
-
-    def get_feature_names(self):
-        return self.feature_names
+        mid_price = input_space.orderbook_snapshots.get_mid_prices()
+        return mid_price
 
 
 @FeatureExtractorRegistry.register("spread")
@@ -49,10 +32,37 @@ class SpreadFeatures(BaseFeatureExtractor):
 
     def extract(self, input_space: InputSpace) -> pl.LazyFrame:
         self.validate_input(input_space)
-        spread = input_space.orderbook_snapshots.filter(pl.col("level") == 0).select(
-            ["timestamp", (pl.col("ask_price") - pl.col("bid_price")).alias("spread")]
-        )
+        spread = input_space.orderbook_snapshots.get_spreads()
         return spread
 
-    def get_feature_names(self):
-        return self.feature_names
+
+@FeatureExtractorRegistry.register("orderbook_imbalance")
+class OrderbookImbalanceFeatures(BaseFeatureExtractor):
+    """Extract orderbook imbalance features"""
+
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.levels = self.config.get("levels", [1, 2, 5])
+        self.dependencies = ["orderbook_snapshots"]
+        self.feature_names = [f"imbalance_L{level}" for level in self.levels]
+
+    def extract(self, input_space: InputSpace) -> pl.LazyFrame:
+        self.validate_input(input_space)
+        df = input_space.orderbook_snapshots.df
+
+        # Calculate imbalance for each level
+        imbalance_exprs = [pl.col("timestamp")]
+        for level in self.levels:
+            # Sum bid quantities from level 1 to level
+            bid_cols = [pl.col(f"bid{i}_qty") for i in range(1, level + 1)]
+            bid_volume = pl.sum_horizontal(bid_cols)
+
+            # Sum ask quantities from level 1 to level
+            ask_cols = [pl.col(f"ask{i}_qty") for i in range(1, level + 1)]
+            ask_volume = pl.sum_horizontal(ask_cols)
+
+            # Calculate imbalance
+            imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
+            imbalance_exprs.append(imbalance.alias(f"imbalance_L{level}"))
+
+        return df.select(imbalance_exprs)

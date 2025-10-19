@@ -3,32 +3,29 @@
 from features.base.label_extractor import BaseLabelExtractor
 import polars as pl
 from features.base.input_space import InputSpace
-from features.labels.price_labels import MidPriceReturnLabel
 
 
 class DirectionalLabel(BaseLabelExtractor):
-    """Classification labels for price direction"""
+    """Directional labels based on return thresholds: -1 (down), 0 (flat), 1 (up)"""
 
     def __init__(self, config=None):
         super().__init__(config)
-        self.horizon = self.config.get("horizon", 10)  # seconds
-        self.threshold = self.config.get("threshold", 0.0001)  # 1 bps
+        self.horizons = self.config.get("horizons", [5, 10, 30])  # samples
+        self.threshold = self.config.get("threshold", 0.0001)  # 0.01% default threshold
         self.dependencies = ["orderbook_snapshots"]
-        self.label_names = ["direction"]
-        self.lookahead_window = self.horizon
+        self.label_names = [f"direction_{h}" for h in self.horizons]
 
     def extract(self, input_space: InputSpace) -> pl.LazyFrame:
-        mid_price_return_extractor = MidPriceReturnLabel(config={"horizons": [self.horizon]})
-        returns = mid_price_return_extractor.extract(input_space)
-        direction = (
-            pl.when(returns.select(f"return_{self.horizon}s") > self.threshold)
-            .then(1)
-            .when(returns.select(f"return_{self.horizon}s") < -self.threshold)
-            .then(-1)
-            .otherwise(0)
-            .alias("direction")
-        )
-        return pl.concat([returns.select("timestamp"), direction], how="horizontal")
+        self.validate_input(input_space)
+        mid_prices = input_space.orderbook_snapshots.get_mid_prices()
 
-    def get_label_names(self):
-        return self.label_names
+        def future_direction_exprs(horizons, threshold):
+            for h in horizons:
+                ret = (pl.col("mid_price").shift(-h) - pl.col("mid_price")) / pl.col("mid_price")
+                yield (
+                    pl.when(ret > threshold).then(1).when(ret < -threshold).then(-1).otherwise(0)
+                ).alias(f"direction_{h}")
+
+        return mid_prices.with_columns(
+            list(future_direction_exprs(self.horizons, self.threshold))
+        ).select(["timestamp"] + [f"direction_{h}" for h in self.horizons])

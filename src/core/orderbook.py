@@ -237,3 +237,39 @@ class OrderBook:
             )
 
         return OrderBook(OrderBookData(res_df, allow_duplicates=True))
+
+    # ================== Order Book feature extraction ==================
+
+    def get_mid_prices(self) -> pl.DataFrame:
+        """
+        Compute mid prices for each orderbook snapshot.
+        Returns:
+            pl.DataFrame: DataFrame with 'timestamp' and 'mid_price' columns.
+        """
+        bid_price_col = "bid1_price"
+        ask_price_col = "ask1_price"
+
+        mid_prices = self.df.select(
+            [
+                pl.col("timestamp"),
+                ((pl.col(bid_price_col) + pl.col(ask_price_col)) / 2).alias("mid_price"),
+            ]
+        )
+        return mid_prices
+
+    def get_spreads(self) -> pl.DataFrame:
+        """
+        Compute spreads for each orderbook snapshot.
+        Returns:
+            pl.DataFrame: DataFrame with 'timestamp' and 'spread' columns.
+        """
+        bid_price_col = "bid1_price"
+        ask_price_col = "ask1_price"
+
+        spreads = self.df.select(
+            [
+                pl.col("timestamp"),
+                (pl.col(ask_price_col) - pl.col(bid_price_col)).alias("spread"),
+            ]
+        )
+        return spreads

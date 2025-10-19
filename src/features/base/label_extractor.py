@@ -1,7 +1,6 @@
 """Abstract base class for all label extractors"""
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
 import polars as pl
 from features.base.input_space import InputSpace
 
@@ -9,11 +8,10 @@ from features.base.input_space import InputSpace
 class BaseLabelExtractor(ABC):
     """Abstract base for all label extractors"""
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, object] = None):
         self.config = config or {}
-        self.label_names: List[str] = []
-        self.dependencies: List[str] = []
-        self.lookahead_window: Optional[int] = None  # prevent leakage
+        self.label_names: list[str] = []
+        self.dependencies: list[str] = []
 
     @abstractmethod
     def extract(self, input_space: InputSpace) -> pl.LazyFrame:
@@ -23,12 +21,13 @@ class BaseLabelExtractor(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_label_names(self) -> List[str]:
-        """Return list of label names this extractor produces"""
-        pass
+    def get_dependencies(self) -> list[str]:
+        """Return which InputSpace fields are required"""
+        return self.dependencies
 
-    def validate_no_leakage(self, timestamp: int) -> bool:
-        """Ensure labels only use past/current data at timestamp"""
-        # Implement as needed
+    def validate_input(self, input_space: InputSpace) -> bool:
+        """Check if required dependencies are present"""
+        for dep in self.dependencies:
+            if getattr(input_space, dep) is None:
+                raise ValueError(f"Missing required dependency: {dep}")
         return True

@@ -1,6 +1,6 @@
 """Registry for feature and label extractors"""
 
-from typing import Dict, Any, Type, List
+from typing import Type
 from features.base.feature_extractor import BaseFeatureExtractor
 from features.base.label_extractor import BaseLabelExtractor
 
@@ -8,7 +8,7 @@ from features.base.label_extractor import BaseLabelExtractor
 class FeatureExtractorRegistry:
     """Registry for feature extractors"""
 
-    _extractors: Dict[str, Type[BaseFeatureExtractor]] = {}
+    _extractors: dict[str, Type[BaseFeatureExtractor]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -19,20 +19,20 @@ class FeatureExtractorRegistry:
         return wrapper
 
     @classmethod
-    def create(cls, name: str, config: Dict[str, Any] = None) -> BaseFeatureExtractor:
+    def create(cls, name: str, config: dict[str, any] = None) -> BaseFeatureExtractor:
         if name not in cls._extractors:
             raise ValueError(f"Unknown extractor: {name}")
         return cls._extractors[name](config)
 
     @classmethod
-    def list_extractors(cls) -> List[str]:
+    def list_extractors(cls) -> list[str]:
         return list(cls._extractors.keys())
 
 
 class LabelExtractorRegistry:
     """Registry for label extractors"""
 
-    _extractors: Dict[str, Type[BaseLabelExtractor]] = {}
+    _extractors: dict[str, Type[BaseLabelExtractor]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -43,11 +43,11 @@ class LabelExtractorRegistry:
         return wrapper
 
     @classmethod
-    def create(cls, name: str, config: Dict[str, Any] = None) -> BaseLabelExtractor:
+    def create(cls, name: str, config: dict[str, any] = None) -> BaseLabelExtractor:
         if name not in cls._extractors:
             raise ValueError(f"Unknown label extractor: {name}")
         return cls._extractors[name](config)
 
     @classmethod
-    def list_extractors(cls) -> List[str]:
+    def list_extractors(cls) -> list[str]:
         return list(cls._extractors.keys())

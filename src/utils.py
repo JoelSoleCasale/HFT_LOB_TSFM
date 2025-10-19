@@ -1,8 +1,7 @@
 import polars as pl
 import numpy as np
-from typing import Iterator
 from pathlib import Path
-from typing import Callable
+from typing import Iterator, Callable
 from datetime import timedelta, date
 from custom_types import DataRequest
 from hftbacktest import (
