@@ -1,6 +1,7 @@
 from sortedcontainers import SortedDict
 import polars as pl
 from polars._typing import FileSource
+from typing import TypeVar, Generic
 
 
 class OrderBookSnapshot:
@@ -38,35 +39,51 @@ class OrderBookSnapshot:
         return res
 
 
-class OrderBookData:
+DFType = TypeVar("DFType", pl.DataFrame, pl.LazyFrame)
+
+
+class OrderBookData(Generic[DFType]):
     """Immutable data container for orderbook snapshots."""
 
     def __init__(
         self,
-        data: pl.DataFrame | None = None,
+        data: DFType | None = None,
         levels: int | None = None,
         allow_duplicates: bool = False,
     ):
+        self._is_lazy = isinstance(data, pl.LazyFrame) if data is not None else False
+
+        if data is not None and levels is not None:
+            raise ValueError("Provide either data or levels, not both.")
+
         if data is not None:
             self._validate_structure(data)
             self._levels = OrderBookData._infer_levels(data)
             col_order = self.get_orderbook_columns(self._levels)
+
             self._df = data.select(col_order).set_sorted("timestamp")
         elif levels is not None:
             self._levels = levels
-            self._df = pl.DataFrame(schema=self.get_orderbook_schema(levels))
+            schema = self.get_orderbook_schema(levels)
+            self._df = pl.DataFrame(schema=schema)
         else:
             raise ValueError("Either data or levels must be provided")
-        if not allow_duplicates:
+
+        if not allow_duplicates and not self._is_lazy:
+            # Only remove duplicates for eager DataFrames
             self._remove_duplicated_rows()
 
     @property
-    def df(self) -> pl.DataFrame:
+    def df(self) -> DFType:
         return self._df.clone()
 
     @property
     def levels(self) -> int:
         return self._levels
+
+    @property
+    def is_lazy(self) -> bool:
+        return self._is_lazy
 
     @staticmethod
     def get_orderbook_schema(levels: int) -> list[tuple[str, pl.DataType]]:
@@ -88,33 +105,38 @@ class OrderBookData:
         return [col for col, _ in OrderBookData.get_orderbook_schema(levels)]
 
     @staticmethod
-    def _infer_levels(df: pl.DataFrame) -> int:
+    def _infer_levels(df: pl.DataFrame | pl.LazyFrame) -> int:
         """Infer levels from DataFrame structure."""
-        price_columns = [col for col in df.columns if col.endswith("_price")]
+        price_columns = [col for col in df.collect_schema().names() if col.endswith("_price")]
+
         if not price_columns:
             raise ValueError("No price columns found")
         return len(price_columns) // 2
 
     @staticmethod
-    def _validate_structure(df: pl.DataFrame):
+    def _validate_structure(df: pl.DataFrame | pl.LazyFrame):
         """Validate that the DataFrame has correct orderbook structure."""
         levels = OrderBookData._infer_levels(df)
         expected_columns = set(OrderBookData.get_orderbook_columns(levels))
         expected_schema = OrderBookData.get_orderbook_schema(levels)
-        if set(df.columns) != expected_columns:
+
+        if set(df.collect_schema().names()) != expected_columns:
             raise ValueError("DataFrame does not have correct orderbook column names.")
 
+        # For schema validation, we can only check LazyFrame schema, not data
         for col_name, expected_dtype in expected_schema:
-            if df[col_name].dtype != expected_dtype:
+            if df.collect_schema()[col_name] != expected_dtype:
                 raise ValueError(
-                    f"Column '{col_name}' has incorrect dtype. Expected {expected_dtype}, got {df[col_name].dtype}."
+                    f"Column '{col_name}' has incorrect dtype. Expected {expected_dtype}, got {df.schema[col_name]}."
                 )
-        if not df["timestamp"].is_sorted():
+
+        # For LazyFrames, we can't easily check if timestamp is sorted without collecting
+        if isinstance(df, pl.DataFrame) and not df["timestamp"].is_sorted():
             raise ValueError("DataFrame 'timestamp' column is not sorted.")
 
     def _remove_duplicated_rows(self) -> None:
         """Remove duplicated rows (rows identical to previous row) in place."""
-        float_cols = [c for c in self._df.columns if c != "timestamp"]
+        float_cols = [c for c in self._df.collect_schema().names() if c != "timestamp"]
 
         mask = pl.any_horizontal([pl.col(col) != pl.col(col).shift(1) for col in float_cols]) | (
             pl.arange(0, pl.len()) == 0
@@ -123,35 +145,49 @@ class OrderBookData:
         self._df = self._df.filter(mask)
 
 
-class OrderBook:
+class OrderBook(Generic[DFType]):
     def __init__(
-        self, data: OrderBookData | pl.DataFrame | None = None, levels: int | None = None
+        self,
+        data: OrderBookData | pl.DataFrame | pl.LazyFrame | None = None,
+        levels: int | None = None,
     ):
-        self._data = data if isinstance(data, OrderBookData) else OrderBookData(data, levels)
+        if isinstance(data, OrderBookData):
+            self._data = data
+        else:
+            self._data = OrderBookData(data, levels)
 
     def __len__(self) -> int:
         """Return number of orderbook snapshots."""
-        return self._data.df.height
+        if self._data.is_lazy:
+            return self._data.df.select(pl.count()).collect().item()
+        else:
+            return self._data.df.height
 
     def __repr__(self) -> str:
-        return f"OrderBook(levels={self.levels}, snapshots={len(self)})"
+        mode = "lazy" if self._data.is_lazy else "eager"
+        return f"OrderBook(levels={self.levels}, snapshots={len(self)}, mode={mode})"
 
     @property
     def levels(self) -> int:
         return self._data.levels
 
     @property
-    def df(self) -> pl.DataFrame:
+    def df(self) -> DFType:
         return self._data.df
 
+    @property
+    def is_lazy(self) -> bool:
+        return self._data.is_lazy
+
     @classmethod
-    def from_parquet(cls, source: FileSource) -> "OrderBook":
+    def from_parquet(cls, source: FileSource, lazy: bool = False) -> "OrderBook":
         """
         Create an OrderBook instance from a Parquet file.
 
         Args:
             source (FileSource): Path or file-like object pointing to the Parquet file
                                 containing orderbook data.
+            lazy (bool): If True, read as LazyFrame. If False, read as DataFrame.
 
         Returns:
             OrderBook: A new OrderBook instance populated with data from the Parquet file.
@@ -165,7 +201,10 @@ class OrderBook:
             >>> print(len(orderbook))
             1000
         """
-        return cls(data=pl.read_parquet(source))
+        if lazy:
+            return cls(data=pl.scan_parquet(source))
+        else:
+            return cls(data=pl.read_parquet(source))
 
     def to_parquet(self, file: FileSource) -> None:
         """
@@ -184,7 +223,34 @@ class OrderBook:
             >>> orderbook = OrderBook(levels=5)
             >>> orderbook.to_parquet("data/orderbook.parquet")
         """
-        self._data.df.write_parquet(file)
+        if self._data.is_lazy:
+            self._data.df.collect().write_parquet(file)
+        else:
+            self._data.df.write_parquet(file)
+
+    def collect(self) -> "OrderBook[pl.DataFrame]":
+        """
+        Convert a lazy OrderBook to an eager OrderBook by collecting the data.
+
+        Returns:
+            OrderBook: A new OrderBook instance with collected DataFrame.
+        """
+        if not self._data.is_lazy:
+            return self
+
+        return OrderBook(self._data.df.collect())
+
+    def lazy(self) -> "OrderBook[pl.LazyFrame]":
+        """
+        Convert an eager OrderBook to a lazy OrderBook.
+
+        Returns:
+            OrderBook: A new OrderBook instance with LazyFrame.
+        """
+        if self._data.is_lazy:
+            return self
+
+        return OrderBook(self._data.df.lazy())
 
     def select_levels(self, levels: int) -> "OrderBook":
         """
@@ -226,25 +292,30 @@ class OrderBook:
         Returns:
             OrderBook: A new OrderBook instance with the sampled data.
         """
-
-        res_df = self.df.group_by_dynamic(
+        res_lf = self.df.group_by_dynamic(
             "timestamp", every=f"{time_delta}i", closed="right", label="right"
         ).agg(pl.all().last())
 
-        if interpolate and res_df.height > 1:
-            res_df = res_df.upsample(time_column="timestamp", every=f"{time_delta}i").fill_null(
-                strategy="forward"
+        if interpolate:
+            first_ts = res_lf.select(pl.col("timestamp").first()).lazy().collect().item()
+            last_ts = res_lf.select(pl.col("timestamp").last()).lazy().collect().item()
+
+            full_range = pl.select(
+                pl.int_range(first_ts, last_ts + time_delta, time_delta).alias("timestamp"),
+                eager=not self._data.is_lazy,
             )
 
-        return OrderBook(OrderBookData(res_df, allow_duplicates=True))
+            res_lf = full_range.join_asof(res_lf, on="timestamp").fill_null(strategy="forward")
+
+        return OrderBook(OrderBookData(res_lf, allow_duplicates=True))
 
     # ================== Order Book feature extraction ==================
 
-    def get_mid_prices(self) -> pl.DataFrame:
+    def get_mid_prices(self) -> DFType:
         """
         Compute mid prices for each orderbook snapshot.
         Returns:
-            pl.DataFrame: DataFrame with 'timestamp' and 'mid_price' columns.
+            pl.DataFrame or pl.LazyFrame: DataFrame/LazyFrame with 'timestamp' and 'mid_price' columns.
         """
         bid_price_col = "bid1_price"
         ask_price_col = "ask1_price"
@@ -257,11 +328,11 @@ class OrderBook:
         )
         return mid_prices
 
-    def get_spreads(self) -> pl.DataFrame:
+    def get_spreads(self) -> DFType:
         """
         Compute spreads for each orderbook snapshot.
         Returns:
-            pl.DataFrame: DataFrame with 'timestamp' and 'spread' columns.
+            pl.DataFrame or pl.LazyFrame: DataFrame/LazyFrame with 'timestamp' and 'spread' columns.
         """
         bid_price_col = "bid1_price"
         ask_price_col = "ask1_price"

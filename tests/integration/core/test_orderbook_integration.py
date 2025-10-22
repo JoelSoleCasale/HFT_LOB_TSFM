@@ -93,25 +93,35 @@ class TestOrderBookIntegration:
         assert bid_prices == sorted(bid_prices, reverse=True)  # Descending
         assert ask_prices == sorted(ask_prices)  # Ascending
 
-    def test_end_to_end_parquet_workflow(self, realistic_orderbook_data):
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_end_to_end_parquet_workflow(self, realistic_orderbook_data, lazy):
         """Test complete workflow: create OrderBook -> save to Parquet -> load -> analyze."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             parquet_path = Path(tmp_dir) / "test_orderbook.parquet"
 
             # Create OrderBook and save to Parquet
-            original_ob = OrderBook(data=realistic_orderbook_data)
+            data = realistic_orderbook_data.lazy() if lazy else realistic_orderbook_data
+            original_ob = OrderBook(data=data)
             original_ob.to_parquet(parquet_path)
 
-            # Load from Parquet
-            loaded_ob = OrderBook.from_parquet(parquet_path)
+            # Load from Parquet (in same mode)
+            loaded_ob = OrderBook.from_parquet(parquet_path, lazy=lazy)
 
             # Verify data integrity
             assert len(loaded_ob) == len(original_ob)
             assert loaded_ob.levels == original_ob.levels
-            assert loaded_ob.df.equals(original_ob.df)
+            assert loaded_ob.is_lazy == lazy
+
+            if lazy:
+                assert loaded_ob.df.collect().equals(original_ob.df.collect())
+            else:
+                assert loaded_ob.df.equals(original_ob.df)
 
             # Perform analysis on loaded data
-            df = loaded_ob.df
+            if lazy:
+                df = loaded_ob.df.collect()
+            else:
+                df = loaded_ob.df
 
             # Calculate spreads
             spreads = df.select((pl.col("ask1_price") - pl.col("bid1_price")).alias("spread"))[
@@ -126,18 +136,21 @@ class TestOrderBookIntegration:
             sampled = loaded_ob.sample_by_events(2)
             assert len(sampled) == len(loaded_ob) // 2
 
-    def test_multi_level_orderbook_operations(self, realistic_orderbook_data):
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_multi_level_orderbook_operations(self, realistic_orderbook_data, lazy):
         """Test operations on multi-level orderbook data."""
-        ob = OrderBook(data=realistic_orderbook_data)
+        data = realistic_orderbook_data.lazy() if lazy else realistic_orderbook_data
+        ob = OrderBook(data=data)
 
         # Test level selection preserves data integrity
         single_level = ob.select_levels(1)
         assert single_level.levels == 1
         assert len(single_level) == len(ob)
+        assert single_level.is_lazy == lazy
 
         # Verify that level 1 data is subset of original
         l1_cols = ["timestamp", "ask1_price", "ask1_qty", "bid1_price", "bid1_qty"]
-        assert set(single_level.df.columns) == set(l1_cols)
+        assert set(single_level.df.collect_schema().names()) == set(l1_cols)
 
         # Test that selecting more levels than available returns same object
         same_ob = ob.select_levels(10)
@@ -148,12 +161,22 @@ class TestOrderBookIntegration:
         df_l2 = ob.df
 
         # Level 1 prices should match between original and reduced
-        assert df_l1.select("ask1_price").equals(df_l2.select("ask1_price"))
-        assert df_l1.select("bid1_price").equals(df_l2.select("bid1_price"))
+        if lazy:
+            assert (
+                df_l1.collect().select("ask1_price").equals(df_l2.collect().select("ask1_price"))
+            )
+            assert (
+                df_l1.collect().select("bid1_price").equals(df_l2.collect().select("bid1_price"))
+            )
+        else:
+            assert df_l1.select("ask1_price").equals(df_l2.select("ask1_price"))
+            assert df_l1.select("bid1_price").equals(df_l2.select("bid1_price"))
 
-    def test_time_based_sampling_with_realistic_data(self, realistic_orderbook_data):
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_time_based_sampling_with_realistic_data(self, realistic_orderbook_data, lazy):
         """Test time-based sampling with realistic market data scenarios."""
-        ob = OrderBook(data=realistic_orderbook_data)
+        data = realistic_orderbook_data.lazy() if lazy else realistic_orderbook_data
+        ob = OrderBook(data=data)
 
         # Test sampling at different intervals
         sample_10ms = ob.sample_by_time(10)  # 10ms intervals
@@ -162,24 +185,32 @@ class TestOrderBookIntegration:
         # Verify sampling reduces data size appropriately
         assert len(sample_10ms) <= len(ob)
         assert len(sample_20ms) <= len(sample_10ms)
+        assert sample_10ms.is_lazy == lazy
+        assert sample_20ms.is_lazy == lazy
 
         # Test with interpolation
         sample_interpolated = ob.sample_by_time(15, interpolate=True)
 
         # With interpolation, we should have regular time intervals
         if len(sample_interpolated) > 1:
-            timestamps = sample_interpolated.df["timestamp"]
+            if lazy:
+                timestamps = sample_interpolated.df.collect()["timestamp"]
+            else:
+                timestamps = sample_interpolated.df["timestamp"]
             time_diffs = timestamps.diff().drop_nulls()
             # Most time differences should be 15ms (allowing for start/end edge cases)
             assert time_diffs.mode().item() == 15
 
-    def test_large_dataset_performance(self, high_frequency_data):
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_large_dataset_performance(self, high_frequency_data, lazy):
         """Test performance with large datasets (integration with memory management)."""
         # Create OrderBook with large dataset
-        ob = OrderBook(data=high_frequency_data)
+        data = high_frequency_data.lazy() if lazy else high_frequency_data
+        ob = OrderBook(data=data)
 
         # Test that operations complete in reasonable time and don't consume excessive memory
         assert len(ob) == 10000
+        assert ob.is_lazy == lazy
 
         # Test sampling on large dataset
         sampled = ob.sample_by_events(100)  # Every 100th row
@@ -226,9 +257,11 @@ class TestOrderBookIntegration:
         with pytest.raises(ValueError, match="timestamp.*not sorted"):
             OrderBook(data=invalid_df)
 
-    def test_orderbook_data_immutability_integration(self, realistic_orderbook_data):
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_orderbook_data_immutability_integration(self, realistic_orderbook_data, lazy):
         """Test that OrderBookData maintains immutability across operations."""
-        ob_data = OrderBookData(data=realistic_orderbook_data)
+        data = realistic_orderbook_data.lazy() if lazy else realistic_orderbook_data
+        ob_data = OrderBookData(data=data)
         ob = OrderBook(data=ob_data)
 
         # Get DataFrame references
@@ -236,15 +269,16 @@ class TestOrderBookIntegration:
         df2 = ob.df
         df3 = ob_data.df
 
-        # They should be equal but different objects
-        assert df1.equals(df2)
-        assert df1.equals(df3)
-        assert df1 is not df2  # Different objects due to cloning
-        assert df1 is not df3  # Different objects due to cloning
-
-        # Modifying one shouldn't affect others (test immutability)
-        # Note: Since these are clones, modifications wouldn't affect the original anyway,
-        # but this tests the cloning behavior
+        # For eager mode, they should be equal but different objects (cloned)
+        # For lazy mode, they are the same LazyFrame reference
+        if lazy:
+            assert df1.collect().equals(df2.collect())
+            assert df1.collect().equals(df3.collect())
+        else:
+            assert df1.equals(df2)
+            assert df1.equals(df3)
+            assert df1 is not df2  # Different objects due to cloning
+            assert df1 is not df3  # Different objects due to cloning
 
         # Test operations return new instances
         sampled_ob = ob.sample_by_events(2)
@@ -462,6 +496,30 @@ class TestOrderBookIntegration:
 
             assert ob.levels == 2
             assert len(ob) == 1
+
+    def test_lazy_eager_mode_switching_workflow(self, realistic_orderbook_data):
+        """Test switching between lazy and eager modes during a workflow."""
+        # Start with eager mode
+        ob_eager = OrderBook(data=realistic_orderbook_data)
+        assert not ob_eager.is_lazy
+
+        # Convert to lazy for efficient chaining operations
+        ob_lazy = ob_eager.lazy()
+        assert ob_lazy.is_lazy
+
+        # Perform multiple operations in lazy mode (should be efficient)
+        ob_lazy_sampled = ob_lazy.sample_by_events(2)
+        ob_lazy_reduced = ob_lazy_sampled.select_levels(1)
+        assert ob_lazy_reduced.is_lazy
+
+        # Collect when needed for final result
+        ob_final = ob_lazy_reduced.collect()
+        assert not ob_final.is_lazy
+        assert isinstance(ob_final.df, pl.DataFrame)
+
+        # Verify results are correct
+        assert ob_final.levels == 1
+        assert len(ob_final) == len(ob_eager) // 2
 
 
 class TestOrderBookErrorHandlingIntegration:
