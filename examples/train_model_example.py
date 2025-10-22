@@ -20,7 +20,14 @@ from features import (
     FeatureExtractorRegistry,
     DirectionalLabel,
 )
-from models import ModelConfig, train_model
+from models import (
+    ModelConfig,
+    LSTMConfig,
+    DataConfig,
+    TrainingConfig,
+    LoggingConfig,
+    train_model,
+)
 from utils import date_range
 from datetime import date, timedelta
 from definitions import ROOT_DIR
@@ -32,7 +39,7 @@ def main():
 
     # Configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 2
+    N_DAYS = 10
 
     print("Loading orderbook data...")
 
@@ -47,9 +54,9 @@ def main():
         get_ob_path(d) for d in date_range(FIRST_DATE, FIRST_DATE + timedelta(days=N_DAYS))
     ]
     orderbook_data = (
-        OrderBook.from_parquet(ob_paths)
+        OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
-        .sample_by_time(time_delta=100_000_000, interpolate=True)
+        .sample_by_time(time_delta=1_000_000_000, interpolate=True)
     )
 
     # Ignore first second
@@ -69,7 +76,7 @@ def main():
     )
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"horizons": [100], "threshold": 0.00005})
+    directional_return_label = DirectionalLabel(config={"horizons": [20], "threshold": 1e-4})
 
     print("Extracting features and labels...")
 
@@ -80,21 +87,71 @@ def main():
     print(f"Features shape: {features.collect().shape}")
     print(f"Labels shape: {labels.collect().shape}")
 
-    # Create model configuration
-    config = ModelConfig(
-        model_type="lstm",  # Try "mlp", "lstm", or "transformer"
-        input_size=2,  # mid_price + orderbook_imbalance
+    # Print label percentage class distributions
+    labels_df = labels.collect()
+    label_counts = labels_df[directional_return_label.label_names[0]].value_counts()
+    total_samples = len(labels_df)
+
+    print("\nLabel distribution:")
+    for label_value, count in label_counts.iter_rows():
+        percentage = (count / total_samples) * 100
+        print(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
+
+    # Create model configuration with new structure
+    # Example 1: LSTM Configuration
+    lstm_config = LSTMConfig(
+        input_size=4,  # mid_price + orderbook_imbalance
         hidden_size=64,
         num_layers=2,
         output_size=3,  # -1, 0, 1 for directional labels
-        sequence_length=10,
-        batch_size=32,
-        learning_rate=0.001,
-        num_epochs=50,
-        early_stopping_patience=10,
-        project_name="financial-models",
-        experiment_name="btc_directional_prediction",
-        wandb_enabled=True,  # Set to False if you don't want wandb logging
+        dropout=0.2,
+        bidirectional=False,
+        attention=False,
+    )
+
+    # Example 2: Transformer Configuration (uncomment to use)
+    # transformer_config = TransformerConfig(
+    #     input_size=4,
+    #     d_model=64,
+    #     nhead=8,
+    #     num_layers=2,
+    #     output_size=3,
+    #     dropout=0.2,
+    #     dim_feedforward=256,
+    # )
+
+    # Example 3: MLP Configuration (uncomment to use)
+    # mlp_config = MLPConfig(
+    #     input_size=4,
+    #     output_size=3,
+    #     hidden_sizes=[64, 32],
+    #     dropout=0.2,
+    # )
+
+    config = ModelConfig(
+        architecture=lstm_config,  # Use lstm_config, transformer_config, or mlp_config
+        data=DataConfig(
+            sequence_length=10,
+            batch_size=32,
+            train_split=0.8,
+            val_split=0.1,
+            test_split=0.1,
+        ),
+        training=TrainingConfig(
+            learning_rate=0.001,
+            num_epochs=2,
+            early_stopping_patience=5,
+            optimizer="adam",  # "adam", "adamw", "sgd", "rmsprop"
+            scheduler="cosine",  # "cosine", "step", "plateau", None
+            loss_function="cross_entropy",  # "cross_entropy", "mse", "mae", "focal"
+        ),
+        logging=LoggingConfig(
+            project_name="financial-models",
+            experiment_name="btc_directional_prediction",
+            wandb_enabled=True,
+            log_confusion_matrix=True,
+            log_learning_curves=True,
+        ),
     )
 
     print("Starting model training...")
@@ -115,27 +172,6 @@ def main():
 
     if results["test_metrics"]:
         print(f"Test accuracy: {results['test_metrics'].get('val_accuracy', 'N/A'):.4f}")
-
-    # Example of making predictions
-    print("\nMaking predictions on a sample...")
-
-    # You can also load the trained model later
-    from models import load_model, LSTMTimeSeriesModel
-
-    # Load the trained model
-    loaded_model, loaded_config, loaded_metadata = load_model(
-        config.model_save_path,
-        LSTMTimeSeriesModel(
-            input_size=config.input_size,
-            hidden_size=config.hidden_size,
-            num_layers=config.num_layers,
-            output_size=config.output_size,
-        ),
-    )
-
-    print("Model loaded successfully!")
-    print(f"Feature names: {loaded_metadata.get('feature_names', 'N/A')}")
-    print(f"Label names: {loaded_metadata.get('label_names', 'N/A')}")
 
 
 if __name__ == "__main__":

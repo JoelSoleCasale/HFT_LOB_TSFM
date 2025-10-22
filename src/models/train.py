@@ -6,24 +6,48 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import wandb
 from loguru import logger
 from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 import time
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
-from .model import create_model, FinancialTimeSeriesModel
-from .utils import (
+
+from models.model import create_model, FinancialTimeSeriesModel
+from models.utils import (
     get_device,
-    setup_logging,
     save_model,
     calculate_accuracy,
     calculate_classification_metrics,
     set_seed,
     count_parameters,
 )
-from .config import ModelConfig
+from models.config import ModelConfig, LSTMConfig, TransformerConfig, MLPConfig
+from models.metrics import MetricsCalculator, create_metrics_logger
+from utils import setup_logging
+
+
+class FocalLoss(nn.Module):
+    """Focal Loss implementation for handling class imbalance."""
+
+    def __init__(self, alpha: float = 1.0, gamma: float = 2.0, reduction: str = "mean"):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        ce_loss = nn.functional.cross_entropy(inputs, targets, reduction="none")
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == "mean":
+            return focal_loss.mean()
+        elif self.reduction == "sum":
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 
 class EarlyStopping:
@@ -81,69 +105,148 @@ class ModelTrainer:
         self.device = get_device(config.device)
         self.model = None
         self.optimizer = None
+        self.scheduler = None
         self.criterion = None
         self.early_stopping = None
         self.scaler = None
+        self.metrics_logger = None
 
         # Set up logging
-        setup_logging(config.log_file)
+        setup_logging(config.logging.log_file)
 
         # Set random seed
-        set_seed(42)
+        set_seed(config.seed)
+
+        # Initialize metrics logger
+        self.metrics_logger = create_metrics_logger(config.logging)
 
         logger.info(f"ModelTrainer initialized with device: {self.device}")
         logger.info(f"Configuration: {config}")
 
     def _create_model(self, input_size: int, sequence_length: int) -> FinancialTimeSeriesModel:
         """Create the model based on configuration."""
+        arch_config = self.config.get_architecture_config()
+
         model_kwargs = {
             "input_size": input_size,
-            "output_size": self.config.output_size,
-            "dropout": self.config.dropout,
+            "output_size": arch_config.output_size,
+            "dropout": arch_config.dropout,
         }
 
-        if self.config.model_type == "mlp":
+        if isinstance(arch_config, MLPConfig):
             model_kwargs.update(
                 {
                     "sequence_length": sequence_length,
-                    "hidden_sizes": [self.config.hidden_size, self.config.hidden_size // 2],
+                    "hidden_sizes": arch_config.hidden_sizes,
+                    "activation": arch_config.activation,
                 }
             )
-        elif self.config.model_type == "lstm":
+        elif isinstance(arch_config, LSTMConfig):
             model_kwargs.update(
                 {
-                    "hidden_size": self.config.hidden_size,
-                    "num_layers": self.config.num_layers,
+                    "hidden_size": arch_config.hidden_size,
+                    "num_layers": arch_config.num_layers,
+                    "bidirectional": arch_config.bidirectional,
+                    "attention": arch_config.attention,
                 }
             )
-        elif self.config.model_type == "transformer":
+        elif isinstance(arch_config, TransformerConfig):
             model_kwargs.update(
                 {
-                    "d_model": self.config.hidden_size,
-                    "nhead": 8,
-                    "num_layers": self.config.num_layers,
+                    "d_model": arch_config.d_model,
+                    "nhead": arch_config.nhead,
+                    "num_layers": arch_config.num_layers,
+                    "dim_feedforward": arch_config.dim_feedforward,
+                    "activation": arch_config.activation,
                 }
             )
 
-        model = create_model(self.config.model_type, **model_kwargs)
+        model = create_model(arch_config.model_type, **model_kwargs)
         model = model.to(self.device)
 
         logger.info(
-            f"Created {self.config.model_type} model with {count_parameters(model)} parameters"
+            f"Created {arch_config.model_type} model with {count_parameters(model)} parameters"
         )
         return model
 
     def _create_optimizer(self) -> optim.Optimizer:
-        """Create the optimizer."""
-        return optim.Adam(
-            self.model.parameters(),
-            lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay,
-        )
+        """Create the optimizer based on configuration."""
+        training_config = self.config.get_training_config()
+
+        if training_config.optimizer.lower() == "adam":
+            return optim.Adam(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                weight_decay=training_config.weight_decay,
+            )
+        elif training_config.optimizer.lower() == "adamw":
+            return optim.AdamW(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                weight_decay=training_config.weight_decay,
+            )
+        elif training_config.optimizer.lower() == "sgd":
+            return optim.SGD(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                weight_decay=training_config.weight_decay,
+                momentum=0.9,
+            )
+        elif training_config.optimizer.lower() == "rmsprop":
+            return optim.RMSprop(
+                self.model.parameters(),
+                lr=training_config.learning_rate,
+                weight_decay=training_config.weight_decay,
+            )
+        else:
+            raise ValueError(f"Unknown optimizer: {training_config.optimizer}")
+
+    def _create_scheduler(self) -> Optional[optim.lr_scheduler._LRScheduler]:
+        """Create learning rate scheduler based on configuration."""
+        training_config = self.config.get_training_config()
+
+        if training_config.scheduler is None:
+            return None
+
+        if training_config.scheduler.lower() == "cosine":
+            return optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=training_config.num_epochs,
+                **training_config.scheduler_params,
+            )
+        elif training_config.scheduler.lower() == "step":
+            return optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=training_config.scheduler_params.get("step_size", 30),
+                gamma=training_config.scheduler_params.get("gamma", 0.1),
+            )
+        elif training_config.scheduler.lower() == "plateau":
+            return optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode="min",
+                patience=training_config.scheduler_params.get("patience", 10),
+                factor=training_config.scheduler_params.get("factor", 0.5),
+            )
+        else:
+            raise ValueError(f"Unknown scheduler: {training_config.scheduler}")
 
     def _create_criterion(self) -> nn.Module:
-        """Create the loss function."""
-        return nn.CrossEntropyLoss()
+        """Create the loss function based on configuration."""
+        training_config = self.config.get_training_config()
+
+        if training_config.loss_function.lower() == "cross_entropy":
+            return nn.CrossEntropyLoss(**training_config.loss_params)
+        elif training_config.loss_function.lower() == "mse":
+            return nn.MSELoss(**training_config.loss_params)
+        elif training_config.loss_function.lower() == "mae":
+            return nn.L1Loss(**training_config.loss_params)
+        elif training_config.loss_function.lower() == "focal":
+            # Focal loss implementation
+            alpha = training_config.loss_params.get("alpha", 1.0)
+            gamma = training_config.loss_params.get("gamma", 2.0)
+            return FocalLoss(alpha=alpha, gamma=gamma)
+        else:
+            raise ValueError(f"Unknown loss function: {training_config.loss_function}")
 
     def _train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         """Train for one epoch."""
@@ -176,7 +279,9 @@ class ModelTrainer:
             num_batches += 1
 
             # Update progress bar
-            progress_bar.set_postfix({"loss": f"{loss.item():.4f}", "acc": f"{accuracy:.4f}"})
+            progress_bar.set_postfix(
+                {"loss": f"{loss.item():.4f}", "acc": f"{total_accuracy/(batch_idx+1):.4f}"}
+            )
 
         return {
             "train_loss": total_loss / num_batches,
@@ -250,15 +355,8 @@ class ModelTrainer:
         Returns:
             Dictionary containing training results
         """
-        # Initialize wandb
-        if self.config.wandb_enabled:
-            wandb.init(
-                project=self.config.wandb_project,
-                entity=self.config.wandb_entity,
-                name=self.config.experiment_name,
-                tags=self.config.wandb_tags,
-                config=self.config.to_dict(),
-            )
+        training_config = self.config.get_training_config()
+        logging_config = self.config.get_logging_config()
 
         # Get input dimensions from first batch
         sample_batch = next(iter(train_loader))
@@ -269,11 +367,21 @@ class ModelTrainer:
         # Create model, optimizer, and criterion
         self.model = self._create_model(input_size, sequence_length)
         self.optimizer = self._create_optimizer()
+        self.scheduler = self._create_scheduler()
         self.criterion = self._create_criterion()
-        self.early_stopping = EarlyStopping(patience=self.config.early_stopping_patience)
+        self.early_stopping = EarlyStopping(patience=training_config.early_stopping_patience)
 
-        # Log model architecture
-        if self.config.wandb_enabled:
+        # Initialize WandB if enabled
+        if self.metrics_logger is not None:
+            import wandb
+
+            wandb.init(
+                project=logging_config.wandb_project,
+                entity=logging_config.wandb_entity,
+                name=logging_config.experiment_name,
+                tags=logging_config.wandb_tags,
+                config=self.config.to_dict(),
+            )
             wandb.watch(self.model, log="all", log_freq=100)
 
         # Training loop
@@ -285,12 +393,12 @@ class ModelTrainer:
             "val_accuracy": [],
         }
 
-        logger.info(f"Starting training for {self.config.num_epochs} epochs")
+        logger.info(f"Starting training for {training_config.num_epochs} epochs")
         logger.info(f"Input size: {input_size}, Sequence length: {sequence_length}")
 
         start_time = time.time()
 
-        for epoch in range(self.config.num_epochs):
+        for epoch in range(training_config.num_epochs):
             epoch_start_time = time.time()
 
             # Train
@@ -308,7 +416,7 @@ class ModelTrainer:
             # Log metrics
             epoch_time = time.time() - epoch_start_time
             logger.info(
-                f"Epoch {epoch+1}/{self.config.num_epochs} - "
+                f"Epoch {epoch+1}/{training_config.num_epochs} - "
                 f"Train Loss: {train_metrics['train_loss']:.4f}, "
                 f"Val Loss: {val_metrics['val_loss']:.4f}, "
                 f"Train Acc: {train_metrics['train_accuracy']:.4f}, "
@@ -316,15 +424,25 @@ class ModelTrainer:
                 f"Time: {epoch_time:.2f}s"
             )
 
-            # Log to wandb
-            if self.config.wandb_enabled:
+            # Log to metrics logger
+            if (
+                self.metrics_logger is not None
+                and epoch % logging_config.log_metrics_frequency == 0
+            ):
                 log_dict = {
                     "epoch": epoch + 1,
                     **train_metrics,
                     **val_metrics,
                     "epoch_time": epoch_time,
                 }
-                wandb.log(log_dict)
+                self.metrics_logger.log_metrics(log_dict, step=epoch)
+
+            # Learning rate scheduling
+            if self.scheduler is not None:
+                if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_metrics["val_loss"])
+                else:
+                    self.scheduler.step()
 
             # Early stopping check
             if self.early_stopping(val_metrics["val_loss"], self.model):
@@ -345,15 +463,34 @@ class ModelTrainer:
             test_metrics = self._validate_epoch(test_loader)
             logger.info(f"Test metrics: {test_metrics}")
 
-            if self.config.wandb_enabled:
-                wandb.log({"test": test_metrics})
+            # Compute and log confusion matrix on test data
+            predictions, true_labels = self.predict(test_loader)
+            confusion_matrix = MetricsCalculator.calculate_confusion_matrix(
+                predictions, true_labels
+            )
+            logger.info(f"Test confusion matrix:\n{confusion_matrix}")
+
+            if self.metrics_logger is not None:
+                self.metrics_logger.log_metrics({"test": test_metrics})
+
+                # Log confusion matrix as an image
+                if logging_config.log_confusion_matrix:
+                    cm_fig = MetricsCalculator.plot_confusion_matrix(confusion_matrix)
+                    self.metrics_logger.log_image("test_confusion_matrix", cm_fig)
+                    plt.close(cm_fig)
+
+        # Log learning curves
+        if self.metrics_logger is not None and logging_config.log_learning_curves:
+            curves_fig = MetricsCalculator.plot_learning_curves(training_history)
+            self.metrics_logger.log_image("learning_curves", curves_fig)
+            plt.close(curves_fig)
 
         # Save final model
         self._save_final_model(feature_names, label_names)
 
-        # Finish wandb run
-        if self.config.wandb_enabled:
-            wandb.finish()
+        # Close metrics logger
+        if self.metrics_logger is not None:
+            self.metrics_logger.close()
 
         return {
             "training_history": training_history,
@@ -364,7 +501,8 @@ class ModelTrainer:
 
     def _save_checkpoint(self, epoch: int, val_loss: float):
         """Save model checkpoint."""
-        checkpoint_dir = Path(self.config.checkpoint_dir)
+        logging_config = self.config.get_logging_config()
+        checkpoint_dir = Path(logging_config.checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch+1}.pth"
@@ -376,7 +514,7 @@ class ModelTrainer:
             metadata={
                 "epoch": epoch + 1,
                 "val_loss": val_loss,
-                "model_type": self.config.model_type,
+                "model_type": self.config.get_architecture_config().model_type,
             },
         )
 
@@ -384,11 +522,12 @@ class ModelTrainer:
         self, feature_names: Optional[List[str]], label_names: Optional[List[str]]
     ):
         """Save the final trained model."""
-        model_save_path = Path(self.config.model_save_path)
+        logging_config = self.config.get_logging_config()
+        model_save_path = Path(logging_config.model_save_path)
         model_save_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata = {
-            "model_type": self.config.model_type,
+            "model_type": self.config.get_architecture_config().model_type,
             "feature_names": feature_names,
             "label_names": label_names,
             "config": self.config.to_dict(),
@@ -466,9 +605,10 @@ def train_model(
     """
     from .data import prepare_data_for_training
 
-    # Prepare data
+    # Prepare data using the data configuration
+    data_config = config.get_data_config()
     train_loader, val_loader, test_loader, scaler, feature_names, label_names = (
-        prepare_data_for_training(features, labels, config, feature_columns, label_columns)
+        prepare_data_for_training(features, labels, data_config, feature_columns, label_columns)
     )
 
     # Create trainer

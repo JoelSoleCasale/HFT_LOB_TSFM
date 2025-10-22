@@ -9,7 +9,7 @@ import numpy as np
 from typing import Tuple, Optional, List
 from loguru import logger
 from sklearn.preprocessing import StandardScaler
-from .config import ModelConfig
+from .config import DataConfig
 
 
 class FinancialDataset(Dataset):
@@ -209,7 +209,7 @@ class FinancialDataset(Dataset):
 def create_dataloaders(
     features: pl.LazyFrame,
     labels: pl.LazyFrame,
-    config: "ModelConfig",
+    data_config: DataConfig,
     feature_columns: Optional[List[str]] = None,
     label_columns: Optional[List[str]] = None,
     random_seed: int = 42,
@@ -220,7 +220,7 @@ def create_dataloaders(
     Args:
         features: Polars LazyFrame containing features
         labels: Polars LazyFrame containing labels
-        config: Model configuration
+        data_config: Data configuration
         feature_columns: List of feature column names to use
         label_columns: List of label column names to use
         random_seed: Random seed for reproducibility
@@ -232,7 +232,7 @@ def create_dataloaders(
     full_dataset = FinancialDataset(
         features=features,
         labels=labels,
-        sequence_length=config.sequence_length,
+        sequence_length=data_config.sequence_length,
         feature_columns=feature_columns,
         label_columns=label_columns,
         fit_scaler=True,
@@ -243,8 +243,8 @@ def create_dataloaders(
 
     # Calculate split sizes
     total_size = len(full_dataset)
-    train_size = int(config.train_split * total_size)
-    val_size = int(config.val_split * total_size)
+    train_size = int(data_config.train_split * total_size)
+    val_size = int(data_config.val_split * total_size)
     test_size = total_size - train_size - val_size
 
     # Split the dataset
@@ -257,25 +257,25 @@ def create_dataloaders(
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=0,  # Set to 0 for Windows compatibility
+        batch_size=data_config.batch_size,
+        shuffle=data_config.shuffle,
+        num_workers=data_config.num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=config.batch_size,
+        batch_size=data_config.batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=data_config.num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
     )
 
     test_loader = DataLoader(
         test_dataset,
-        batch_size=config.batch_size,
+        batch_size=data_config.batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=data_config.num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
     )
 
@@ -289,7 +289,7 @@ def create_dataloaders(
 def prepare_data_for_training(
     features: pl.LazyFrame,
     labels: pl.LazyFrame,
-    config: "ModelConfig",
+    data_config: DataConfig,
     feature_columns: Optional[List[str]] = None,
     label_columns: Optional[List[str]] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader, StandardScaler, List[str], List[str]]:
@@ -299,7 +299,7 @@ def prepare_data_for_training(
     Args:
         features: Polars LazyFrame containing features
         labels: Polars LazyFrame containing labels
-        config: Model configuration
+        data_config: Data configuration
         feature_columns: Optional list of feature columns to use
         label_columns: Optional list of label columns to use
 
@@ -308,7 +308,7 @@ def prepare_data_for_training(
     """
     # Create dataloaders
     train_loader, val_loader, test_loader, scaler = create_dataloaders(
-        features, labels, config, feature_columns, label_columns
+        features, labels, data_config, feature_columns, label_columns
     )
 
     # Get feature and label names from the first batch
@@ -319,7 +319,7 @@ def prepare_data_for_training(
     temp_dataset = FinancialDataset(
         features=features,
         labels=labels,
-        sequence_length=config.sequence_length,
+        sequence_length=data_config.sequence_length,
         feature_columns=feature_columns,
         label_columns=label_columns,
         scaler=scaler,

@@ -21,3 +21,6 @@ htmlcov/
 
 # wandb
 wandb/
+
+model_checkpoint/
+logs/

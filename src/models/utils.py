@@ -14,49 +14,15 @@ def get_device(device: str = "auto") -> torch.device:
     Get the appropriate device for PyTorch operations.
 
     Args:
-        device: Device specification ("auto", "cpu", "cuda", "mps")
+        device: Device specification ("auto", "cpu", "cuda")
 
     Returns:
         torch.device: The selected device
     """
     if device == "auto":
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
     return torch.device(device)
-
-
-def setup_logging(log_file: str = "training.log", level: str = "INFO") -> None:
-    """
-    Set up loguru logging configuration.
-
-    Args:
-        log_file: Path to log file
-        level: Logging level
-    """
-    # Remove default handler
-    logger.remove()
-
-    # Add console handler
-    logger.add(
-        lambda msg: print(msg, end=""),
-        level=level,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    )
-
-    # Add file handler
-    logger.add(
-        log_file,
-        level=level,
-        rotation="10 MB",
-        retention="7 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    )
 
 
 def save_model(
@@ -150,7 +116,7 @@ def calculate_accuracy(predictions: torch.Tensor, targets: torch.Tensor) -> floa
 
 
 def calculate_classification_metrics(
-    predictions: torch.Tensor, targets: torch.Tensor, num_classes: int
+    predictions: torch.Tensor, targets: torch.Tensor, num_classes: int, per_class: bool = False
 ) -> Dict[str, float]:
     """
     Calculate classification metrics including precision, recall, and F1-score.
@@ -189,11 +155,24 @@ def calculate_classification_metrics(
     }
 
     # Add per-class metrics
-    for i in range(num_classes):
-        if str(i) in report:
-            metrics[f"class_{i}_precision"] = report[str(i)]["precision"]
-            metrics[f"class_{i}_recall"] = report[str(i)]["recall"]
-            metrics[f"class_{i}_f1"] = report[str(i)]["f1-score"]
+    if per_class:
+        for i in range(num_classes):
+            if str(i) in report:
+                metrics[f"class_{i}_precision"] = report[str(i)]["precision"]
+                metrics[f"class_{i}_recall"] = report[str(i)]["recall"]
+                metrics[f"class_{i}_f1"] = report[str(i)]["f1-score"]
+
+    # Compute trade accuracy, assuming classes are -1, 0, 1 (encoded as 0, 1, 2)
+    # Trade accuracy considers only classes 0 and 2 for predicted and true values
+    if num_classes == 3:
+        trade_mask = ((targets == 0) | (targets == 2)) & ((predictions == 0) | (predictions == 2))
+        if trade_mask.sum().item() > 0:
+            trade_correct = ((predictions == targets) & trade_mask).float().sum()
+            trade_total = trade_mask.float().sum()
+            trade_accuracy = (trade_correct / trade_total).item()
+            metrics["trade_accuracy"] = trade_accuracy
+        else:
+            metrics["trade_accuracy"] = float("nan")
 
     return metrics
 

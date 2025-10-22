@@ -10,27 +10,56 @@ This module provides:
 
 from .model import (
     FinancialTimeSeriesModel,
+    MLPTimeSeriesModel,
     LSTMTimeSeriesModel,
     TransformerTimeSeriesModel,
+    PositionalEncoding,
     create_model,
 )
 from .train import ModelTrainer, train_model
 from .data import FinancialDataset, create_dataloaders
-from .utils import setup_logging, save_model, load_model, get_device
-from .config import ModelConfig
+from .utils import save_model, load_model, get_device
+from .config import (
+    ModelConfig,
+    DataConfig,
+    TrainingConfig,
+    LoggingConfig,
+    ModelArchitectureConfig,
+    LSTMConfig,
+    TransformerConfig,
+    MLPConfig,
+)
+from .metrics import MetricsCalculator, MetricsLogger, create_metrics_logger
 
 __all__ = [
+    # Model architectures
     "FinancialTimeSeriesModel",
+    "MLPTimeSeriesModel",
     "LSTMTimeSeriesModel",
     "TransformerTimeSeriesModel",
+    "PositionalEncoding",
     "create_model",
+    # Training
     "ModelTrainer",
     "train_model",
+    # Data
     "FinancialDataset",
     "create_dataloaders",
-    "setup_logging",
+    # Utilities
     "save_model",
     "load_model",
     "get_device",
+    # Configuration classes
     "ModelConfig",
+    "DataConfig",
+    "TrainingConfig",
+    "LoggingConfig",
+    "ModelArchitectureConfig",
+    "LSTMConfig",
+    "TransformerConfig",
+    "MLPConfig",
+    # Metrics
+    "MetricsCalculator",
+    "MetricsLogger",
+    "create_metrics_logger",
 ]
