@@ -14,6 +14,41 @@ from hftbacktest import (
     event_dtype,
 )
 from hftbacktest.data import validate_event_order
+from loguru import logger
+from definitions import ROOT_DIR
+
+
+def setup_logging(log_file: str | Path = None, level: str = "INFO") -> None:
+    """
+    Set up loguru logging configuration.
+
+    Args:
+        log_file: Path to log file
+        level: Logging level
+    """
+    if log_file is None:
+        log_file = Path(ROOT_DIR / "logs" / "logfile.log")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Remove default handler
+    logger.remove()
+
+    # Add console handler
+    logger.add(
+        lambda msg: print(msg, end=""),
+        level=level,
+        colorize=True,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    )
+
+    # Add file handler
+    logger.add(
+        log_file,
+        level=level,
+        rotation="10 MB",
+        retention="7 days",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    )
 
 
 def iter_slices(

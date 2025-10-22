@@ -2,10 +2,11 @@ import yaml
 from loguru import logger
 from datetime import date
 import argparse
-import sys
 
 from definitions import ROOT_DIR
 from data_manager.processing.incremental_orderbook_sampler import IncrementalOrderBookSampler
+
+from utils import setup_logging
 
 
 def load_config():
@@ -69,8 +70,7 @@ def main() -> None:
     default_cfg = load_config()
     args = parse_args(default_cfg)
 
-    logger.remove()
-    logger.add(sys.stderr, level=args.log_level, colorize=True)
+    setup_logging(level=args.log_level)
 
     logger.debug("Final Configuration:\n" + yaml.dump(vars(args)))
 
