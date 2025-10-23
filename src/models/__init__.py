@@ -8,14 +8,14 @@ This module provides:
 - Model configuration management
 """
 
-from .model import (
+from .model import create_model
+from .architectures import (
     FinancialTimeSeriesModel,
     MLPTimeSeriesModel,
     LSTMTimeSeriesModel,
     TransformerTimeSeriesModel,
-    PositionalEncoding,
-    create_model,
 )
+from .architectures.transformer import PositionalEncoding
 from .train import ModelTrainer, train_model
 from .data import FinancialDataset, create_dataloaders
 from .utils import save_model, load_model, get_device
@@ -24,6 +24,8 @@ from .config import (
     DataConfig,
     TrainingConfig,
     LoggingConfig,
+)
+from .architectures import (
     ModelArchitectureConfig,
     LSTMConfig,
     TransformerConfig,

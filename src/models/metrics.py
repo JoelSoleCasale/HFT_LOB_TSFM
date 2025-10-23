@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, Any, Optional, List
 import wandb
+from .utils import calculate_trade_accuracy
 
 
 class MetricsLogger:
@@ -37,10 +38,7 @@ class MetricsLogger:
     def log_image(self, name: str, image: Any, step: Optional[int] = None) -> None:
         """Log an image to WandB."""
         self._ensure_initialized()
-        if isinstance(image, plt.Figure):
-            wandb.log({name: wandb.Image(image)}, step=step)
-        else:
-            wandb.log({name: wandb.Image(image)}, step=step)
+        wandb.log({name: wandb.Image(image)}, step=step)
 
     def log_histogram(self, name: str, values: np.ndarray, step: Optional[int] = None) -> None:
         """Log a histogram to WandB."""
@@ -102,29 +100,64 @@ class MetricsCalculator:
         return fig
 
     @staticmethod
-    def plot_learning_curves(history: Dict[str, List[float]]) -> plt.Figure:
-        """Create learning curves plot."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+    def plot_trade_accuracy_vs_threshold(
+        predictions: torch.Tensor,
+        true_labels: torch.Tensor,
+        thresholds: Optional[np.ndarray] = None,
+        num_points: int = 50,
+    ) -> plt.Figure:
+        """
+        Plot trade accuracy across different confidence thresholds.
 
-        # Plot loss curves
-        if "train_loss" in history and "val_loss" in history:
-            ax1.plot(history["train_loss"], label="Training Loss", marker="o")
-            ax1.plot(history["val_loss"], label="Validation Loss", marker="s")
-            ax1.set_title("Loss Curves")
-            ax1.set_xlabel("Epoch")
-            ax1.set_ylabel("Loss")
-            ax1.legend()
-            ax1.grid(True)
+        Args:
+            predictions: Model predictions (logits or probabilities)
+            true_labels: Ground truth labels
+            thresholds: Array of threshold values to test. If None, uses linspace from 0 to 1
+            num_points: Number of threshold points to test (only used if thresholds is None)
 
-        # Plot accuracy curves
-        if "train_accuracy" in history and "val_accuracy" in history:
-            ax2.plot(history["train_accuracy"], label="Training Accuracy", marker="o")
-            ax2.plot(history["val_accuracy"], label="Validation Accuracy", marker="s")
-            ax2.set_title("Accuracy Curves")
-            ax2.set_xlabel("Epoch")
-            ax2.set_ylabel("Accuracy")
-            ax2.legend()
-            ax2.grid(True)
+        Returns:
+            matplotlib Figure object
+        """
+        if thresholds is None:
+            thresholds = np.linspace(0, 1, num_points)
+
+        accuracies = []
+        valid_thresholds = []
+
+        for threshold in thresholds:
+            accuracy = calculate_trade_accuracy(
+                predictions, true_labels, threshold=float(threshold)
+            )
+            # Only include non-NaN values
+            if not np.isnan(accuracy):
+                accuracies.append(accuracy)
+                valid_thresholds.append(threshold)
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(valid_thresholds, accuracies, linewidth=2, marker="o", markersize=4)
+        ax.set_xlabel("Confidence Threshold", fontsize=12)
+        ax.set_ylabel("Trade Accuracy", fontsize=12)
+        ax.set_title("Trade Accuracy vs Confidence Threshold", fontsize=14, fontweight="bold")
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+
+        # Add horizontal line at maximum accuracy
+        if accuracies:
+            max_acc = max(accuracies)
+            max_threshold = valid_thresholds[accuracies.index(max_acc)]
+            ax.axhline(
+                y=max_acc, color="r", linestyle="--", alpha=0.5, label=f"Max: {max_acc:.4f}"
+            )
+            ax.axvline(
+                x=max_threshold,
+                color="g",
+                linestyle="--",
+                alpha=0.5,
+                label=f"Optimal threshold: {max_threshold:.3f}",
+            )
+            ax.legend()
 
         plt.tight_layout()
         return fig

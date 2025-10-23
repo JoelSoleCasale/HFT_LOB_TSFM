@@ -115,6 +115,46 @@ def calculate_accuracy(predictions: torch.Tensor, targets: torch.Tensor) -> floa
     return (correct / total).item()
 
 
+def calculate_trade_accuracy(
+    predictions: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5
+) -> float:
+    """
+    Compute trade accuracy, considering only non-neutral classes with confidence above threshold.
+
+    Args:
+        predictions: Model predictions (logits or probabilities)
+        targets: Ground truth labels
+        threshold: Minimum confidence threshold for predictions
+
+    Returns:
+        Trade accuracy as a float between 0 and 1
+    """
+    if predictions.dim() > 1:
+        # Get probabilities and predicted classes
+        probabilities = torch.softmax(predictions, dim=1)
+        max_probs, pred_classes = torch.max(probabilities, dim=1)
+    else:
+        pred_classes = predictions
+        max_probs = torch.ones_like(predictions)  # Assume full confidence if already class indices
+
+    # Create mask for high-confidence predictions
+    confidence_mask = max_probs >= threshold
+
+    # Create mask for non-neutral classes (assuming classes are -1, 0, 1 encoded as 0, 1, 2)
+    trade_mask = ((targets == 0) | (targets == 2)) & ((pred_classes == 0) | (pred_classes == 2))
+
+    # Combine both masks
+    combined_mask = trade_mask & confidence_mask
+
+    if combined_mask.sum().item() == 0:
+        return float("nan")  # No trade samples to evaluate
+
+    trade_correct = ((pred_classes == targets) & combined_mask).float().sum()
+    trade_total = combined_mask.float().sum()
+
+    return (trade_correct / trade_total).item()
+
+
 def calculate_classification_metrics(
     predictions: torch.Tensor, targets: torch.Tensor, num_classes: int, per_class: bool = False
 ) -> Dict[str, float]:
@@ -162,17 +202,7 @@ def calculate_classification_metrics(
                 metrics[f"class_{i}_recall"] = report[str(i)]["recall"]
                 metrics[f"class_{i}_f1"] = report[str(i)]["f1-score"]
 
-    # Compute trade accuracy, assuming classes are -1, 0, 1 (encoded as 0, 1, 2)
-    # Trade accuracy considers only classes 0 and 2 for predicted and true values
-    if num_classes == 3:
-        trade_mask = ((targets == 0) | (targets == 2)) & ((predictions == 0) | (predictions == 2))
-        if trade_mask.sum().item() > 0:
-            trade_correct = ((predictions == targets) & trade_mask).float().sum()
-            trade_total = trade_mask.float().sum()
-            trade_accuracy = (trade_correct / trade_total).item()
-            metrics["trade_accuracy"] = trade_accuracy
-        else:
-            metrics["trade_accuracy"] = float("nan")
+    metrics["trade_accuracy"] = calculate_trade_accuracy(predictions, targets)
 
     return metrics
 

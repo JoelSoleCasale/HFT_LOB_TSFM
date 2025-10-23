@@ -23,7 +23,7 @@ from models.utils import (
     set_seed,
     count_parameters,
 )
-from models.config import ModelConfig, LSTMConfig, TransformerConfig, MLPConfig
+from models.config import ModelConfig
 from models.metrics import MetricsCalculator, create_metrics_logger
 from utils import setup_logging
 
@@ -126,42 +126,7 @@ class ModelTrainer:
     def _create_model(self, input_size: int, sequence_length: int) -> FinancialTimeSeriesModel:
         """Create the model based on configuration."""
         arch_config = self.config.get_architecture_config()
-
-        model_kwargs = {
-            "input_size": input_size,
-            "output_size": arch_config.output_size,
-            "dropout": arch_config.dropout,
-        }
-
-        if isinstance(arch_config, MLPConfig):
-            model_kwargs.update(
-                {
-                    "sequence_length": sequence_length,
-                    "hidden_sizes": arch_config.hidden_sizes,
-                    "activation": arch_config.activation,
-                }
-            )
-        elif isinstance(arch_config, LSTMConfig):
-            model_kwargs.update(
-                {
-                    "hidden_size": arch_config.hidden_size,
-                    "num_layers": arch_config.num_layers,
-                    "bidirectional": arch_config.bidirectional,
-                    "attention": arch_config.attention,
-                }
-            )
-        elif isinstance(arch_config, TransformerConfig):
-            model_kwargs.update(
-                {
-                    "d_model": arch_config.d_model,
-                    "nhead": arch_config.nhead,
-                    "num_layers": arch_config.num_layers,
-                    "dim_feedforward": arch_config.dim_feedforward,
-                    "activation": arch_config.activation,
-                }
-            )
-
-        model = create_model(arch_config.model_type, **model_kwargs)
+        model = create_model(**arch_config.params())
         model = model.to(self.device)
 
         logger.info(
@@ -234,19 +199,17 @@ class ModelTrainer:
         """Create the loss function based on configuration."""
         training_config = self.config.get_training_config()
 
-        if training_config.loss_function.lower() == "cross_entropy":
-            return nn.CrossEntropyLoss(**training_config.loss_params)
-        elif training_config.loss_function.lower() == "mse":
-            return nn.MSELoss(**training_config.loss_params)
-        elif training_config.loss_function.lower() == "mae":
-            return nn.L1Loss(**training_config.loss_params)
-        elif training_config.loss_function.lower() == "focal":
-            # Focal loss implementation
-            alpha = training_config.loss_params.get("alpha", 1.0)
-            gamma = training_config.loss_params.get("gamma", 2.0)
-            return FocalLoss(alpha=alpha, gamma=gamma)
-        else:
+        losses = {
+            "cross_entropy": nn.CrossEntropyLoss,
+            "mse": nn.MSELoss,
+            "mae": nn.L1Loss,
+            "focal": FocalLoss,
+        }
+
+        if training_config.loss_function.lower() not in losses:
             raise ValueError(f"Unknown loss function: {training_config.loss_function}")
+
+        return losses[training_config.loss_function.lower()](**training_config.loss_params)
 
     def _train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         """Train for one epoch."""
@@ -326,9 +289,9 @@ class ModelTrainer:
         }
 
         # Add classification metrics
-        if self.config.output_size > 1:
+        if self.config.get_architecture_config().output_size > 1:
             classification_metrics = calculate_classification_metrics(
-                all_predictions, all_labels, self.config.output_size
+                all_predictions, all_labels, self.config.get_architecture_config().output_size
             )
             metrics.update(classification_metrics)
 
@@ -479,11 +442,13 @@ class ModelTrainer:
                     self.metrics_logger.log_image("test_confusion_matrix", cm_fig)
                     plt.close(cm_fig)
 
-        # Log learning curves
-        if self.metrics_logger is not None and logging_config.log_learning_curves:
-            curves_fig = MetricsCalculator.plot_learning_curves(training_history)
-            self.metrics_logger.log_image("learning_curves", curves_fig)
-            plt.close(curves_fig)
+                # Log trade accuracy vs threshold plot
+                if logging_config.log_trade_accuracy_vs_threshold:
+                    trade_acc_fig = MetricsCalculator.plot_trade_accuracy_vs_threshold(
+                        predictions, true_labels
+                    )
+                    self.metrics_logger.log_image("trade_accuracy_vs_threshold", trade_acc_fig)
+                    plt.close(trade_acc_fig)
 
         # Save final model
         self._save_final_model(feature_names, label_names)

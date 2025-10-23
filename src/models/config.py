@@ -7,6 +7,10 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 import yaml
 from definitions import ROOT_DIR
+from .architectures.base import ModelArchitectureConfig
+from .architectures.mlp import MLPConfig
+from .architectures.lstm import LSTMConfig
+from .architectures.transformer import TransformerConfig
 
 
 @dataclass
@@ -55,8 +59,8 @@ class LoggingConfig:
     project_name: str = "financial-models"
     experiment_name: Optional[str] = None
     log_file: str = str(ROOT_DIR / "logs/training.log")
-    model_save_path: str = str(ROOT_DIR / "models/trained_model.pth")
-    checkpoint_dir: str = str(ROOT_DIR / "models/checkpoints")
+    model_save_path: str = str(ROOT_DIR / "model_checkpoint/trained_model.pth")
+    checkpoint_dir: str = str(ROOT_DIR / "model_checkpoint/checkpoints")
 
     # Wandb configuration
     wandb_enabled: bool = True
@@ -67,58 +71,8 @@ class LoggingConfig:
     # Metrics logging
     log_metrics_frequency: int = 1  # Log every N epochs
     log_confusion_matrix: bool = True
-    log_learning_curves: bool = True
+    log_trade_accuracy_vs_threshold: bool = True
     log_predictions: bool = False
-
-
-@dataclass
-class ModelArchitectureConfig:
-    """Base configuration for model architecture."""
-
-    model_type: str = "lstm"  # "lstm", "transformer", "mlp"
-    input_size: int = 10
-    output_size: int = 3  # For classification: -1, 0, 1
-    dropout: float = 0.2
-
-    def __post_init__(self):
-        """Validate model architecture configuration."""
-        valid_models = ["lstm", "transformer", "mlp"]
-        if self.model_type not in valid_models:
-            raise ValueError(f"Model type must be one of {valid_models}, got {self.model_type}")
-
-
-@dataclass
-class LSTMConfig(ModelArchitectureConfig):
-    """Configuration for LSTM models."""
-
-    model_type: str = "lstm"
-    hidden_size: int = 64
-    num_layers: int = 2
-    bidirectional: bool = False
-    attention: bool = False
-    activation: str = "relu"
-
-
-@dataclass
-class TransformerConfig(ModelArchitectureConfig):
-    """Configuration for Transformer models."""
-
-    model_type: str = "transformer"
-    d_model: int = 64
-    nhead: int = 8
-    num_layers: int = 2
-    dim_feedforward: int = 256
-    activation: str = "relu"
-    max_sequence_length: int = 5000
-
-
-@dataclass
-class MLPConfig(ModelArchitectureConfig):
-    """Configuration for MLP models."""
-
-    model_type: str = "mlp"
-    hidden_sizes: List[int] = field(default_factory=lambda: [64, 32])
-    activation: str = "relu"
 
 
 @dataclass

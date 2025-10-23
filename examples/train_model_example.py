@@ -56,7 +56,7 @@ def main():
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
-        .sample_by_time(time_delta=1_000_000_000, interpolate=True)
+        .sample_by_time(time_delta=100_000_000, interpolate=True)
     )
 
     # Ignore first second
@@ -76,7 +76,7 @@ def main():
     )
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"horizons": [20], "threshold": 1e-4})
+    directional_return_label = DirectionalLabel(config={"horizons": [250], "threshold": 1e-4})
 
     print("Extracting features and labels...")
 
@@ -101,11 +101,11 @@ def main():
     # Example 1: LSTM Configuration
     lstm_config = LSTMConfig(
         input_size=4,  # mid_price + orderbook_imbalance
-        hidden_size=64,
+        hidden_size=128,
         num_layers=2,
         output_size=3,  # -1, 0, 1 for directional labels
         dropout=0.2,
-        bidirectional=False,
+        bidirectional=True,
         attention=False,
     )
 
@@ -131,15 +131,15 @@ def main():
     config = ModelConfig(
         architecture=lstm_config,  # Use lstm_config, transformer_config, or mlp_config
         data=DataConfig(
-            sequence_length=10,
-            batch_size=32,
+            sequence_length=100,
+            batch_size=1024,
             train_split=0.8,
             val_split=0.1,
             test_split=0.1,
         ),
         training=TrainingConfig(
             learning_rate=0.001,
-            num_epochs=2,
+            num_epochs=1,
             early_stopping_patience=5,
             optimizer="adam",  # "adam", "adamw", "sgd", "rmsprop"
             scheduler="cosine",  # "cosine", "step", "plateau", None
@@ -150,7 +150,7 @@ def main():
             experiment_name="btc_directional_prediction",
             wandb_enabled=True,
             log_confusion_matrix=True,
-            log_learning_curves=True,
+            log_trade_accuracy_vs_threshold=True,
         ),
     )
 
