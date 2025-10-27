@@ -6,7 +6,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import polars as pl
 import numpy as np
-from typing import Tuple, Optional, List
 from loguru import logger
 from sklearn.preprocessing import StandardScaler
 from .config import DataConfig
@@ -25,9 +24,9 @@ class FinancialDataset(Dataset):
         features: pl.LazyFrame,
         labels: pl.LazyFrame,
         sequence_length: int = 10,
-        feature_columns: Optional[List[str]] = None,
-        label_columns: Optional[List[str]] = None,
-        scaler: Optional[StandardScaler] = None,
+        feature_columns: list[str] | None = None,
+        label_columns: list[str] | None = None,
+        scaler: StandardScaler | None = None,
         fit_scaler: bool = True,
     ):
         """
@@ -128,7 +127,7 @@ class FinancialDataset(Dataset):
 
     def _handle_missing_values(
         self, features: np.ndarray, labels: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Handle missing values by dropping rows with any nulls/NaNs across features and labels together.
 
@@ -157,7 +156,7 @@ class FinancialDataset(Dataset):
 
         return features[valid_rows_mask], labels[valid_rows_mask]
 
-    def _get_valid_sequence_indices(self) -> List[int]:
+    def _get_valid_sequence_indices(self) -> list[int]:
         """Get indices where we can create valid sequences."""
         if not torch.isnan(self.features).any():
             return list(range(len(self.features) - self.sequence_length + 1))
@@ -173,7 +172,7 @@ class FinancialDataset(Dataset):
         """Return the number of valid sequences."""
         return len(self.valid_indices)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Get a sequence and its corresponding label.
 
@@ -194,11 +193,11 @@ class FinancialDataset(Dataset):
 
         return sequence, label
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get the names of feature columns."""
         return self.feature_columns
 
-    def get_label_names(self) -> List[str]:
+    def get_label_names(self) -> list[str]:
         """Get the names of label columns."""
         return self.label_columns
 
@@ -211,10 +210,10 @@ def create_dataloaders(
     features: pl.LazyFrame,
     labels: pl.LazyFrame,
     data_config: DataConfig,
-    feature_columns: Optional[List[str]] = None,
-    label_columns: Optional[List[str]] = None,
+    feature_columns: list[str] | None = None,
+    label_columns: list[str] | None = None,
     random_seed: int = 42,
-) -> Tuple[DataLoader, DataLoader, DataLoader, StandardScaler]:
+) -> tuple[DataLoader, DataLoader, DataLoader, StandardScaler]:
     """
     Create train, validation, and test dataloaders.
 
@@ -291,9 +290,9 @@ def prepare_data_for_training(
     features: pl.LazyFrame,
     labels: pl.LazyFrame,
     data_config: DataConfig,
-    feature_columns: Optional[List[str]] = None,
-    label_columns: Optional[List[str]] = None,
-) -> Tuple[DataLoader, DataLoader, DataLoader, StandardScaler, List[str], List[str]]:
+    feature_columns: list[str] | None = None,
+    label_columns: list[str] | None = None,
+) -> tuple[DataLoader, DataLoader, DataLoader, StandardScaler, list[str], list[str]]:
     """
     Prepare data for training with automatic column selection.
 

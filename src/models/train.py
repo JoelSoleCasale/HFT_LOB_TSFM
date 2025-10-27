@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from loguru import logger
-from typing import Optional, Dict, Any, Tuple, List
 from pathlib import Path
 import time
 from tqdm import tqdm
@@ -145,7 +144,7 @@ class ModelTrainer:
         else:
             raise ValueError(f"Unknown optimizer: {training_config.optimizer}")
 
-    def _create_scheduler(self) -> Optional[optim.lr_scheduler._LRScheduler]:
+    def _create_scheduler(self) -> optim.lr_scheduler._LRScheduler | None:
         """Create learning rate scheduler based on configuration."""
         training_config = self.config.get_training_config()
 
@@ -190,7 +189,7 @@ class ModelTrainer:
 
         return losses[training_config.loss_function.lower()](**training_config.loss_params)
 
-    def _train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
+    def _train_epoch(self, train_loader: DataLoader) -> dict[str, float]:
         """Train for one epoch."""
         self.model.train()
         total_loss = 0.0
@@ -230,7 +229,7 @@ class ModelTrainer:
             "train_accuracy": total_accuracy / num_batches,
         }
 
-    def _validate_epoch(self, val_loader: DataLoader) -> Dict[str, float]:
+    def _validate_epoch(self, val_loader: DataLoader) -> dict[str, float]:
         """Validate for one epoch."""
         self.model.eval()
         total_loss = 0.0
@@ -280,10 +279,10 @@ class ModelTrainer:
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
-        test_loader: Optional[DataLoader] = None,
-        feature_names: Optional[List[str]] = None,
-        label_names: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        test_loader: DataLoader | None = None,
+        feature_names: list[str] | None = None,
+        label_names: list[str] | None = None,
+    ) -> dict[str, object]:
         """
         Train the model.
 
@@ -462,9 +461,7 @@ class ModelTrainer:
             },
         )
 
-    def _save_final_model(
-        self, feature_names: Optional[List[str]], label_names: Optional[List[str]]
-    ):
+    def _save_final_model(self, feature_names: list[str] | None, label_names: list[str] | None):
         """Save the final trained model."""
         logging_config = self.config.get_logging_config()
         model_save_path = Path(logging_config.model_save_path)
@@ -481,7 +478,7 @@ class ModelTrainer:
             self.model, str(model_save_path), config=self.config.to_dict(), metadata=metadata
         )
 
-    def evaluate(self, test_loader: DataLoader) -> Dict[str, float]:
+    def evaluate(self, test_loader: DataLoader) -> dict[str, float]:
         """
         Evaluate the model on test data.
 
@@ -497,7 +494,7 @@ class ModelTrainer:
         self.model.eval()
         return self._validate_epoch(test_loader)
 
-    def predict(self, data_loader: DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+    def predict(self, data_loader: DataLoader) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Make predictions on data.
 
@@ -531,9 +528,9 @@ def train_model(
     features,
     labels,
     config: ModelConfig,
-    feature_columns: Optional[List[str]] = None,
-    label_columns: Optional[List[str]] = None,
-) -> Tuple[ModelTrainer, Dict[str, Any]]:
+    feature_columns: list[str] | None = None,
+    label_columns: list[str] | None = None,
+) -> tuple[ModelTrainer, dict[str, object]]:
     """
     Convenience function to train a model.
 

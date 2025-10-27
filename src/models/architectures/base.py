@@ -5,7 +5,6 @@ Base class for financial time series models.
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from typing import Any, Dict
 
 
 @dataclass
@@ -23,7 +22,7 @@ class ModelArchitectureConfig:
         if self.model_type not in valid_models:
             raise ValueError(f"Model type must be one of {valid_models}, got {self.model_type}")
 
-    def params(self) -> Dict[str, Any]:
+    def params(self) -> dict[str, object]:
         """Return model-specific parameters as a dictionary."""
         return self.__dict__
 

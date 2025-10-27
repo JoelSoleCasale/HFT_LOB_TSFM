@@ -5,7 +5,6 @@ Multi-layer Perceptron (MLP) architecture for time series prediction.
 import torch
 import torch.nn as nn
 from dataclasses import dataclass, field
-from typing import List
 
 from .base import ModelArchitectureConfig, FinancialTimeSeriesModel
 
@@ -15,7 +14,7 @@ class MLPConfig(ModelArchitectureConfig):
     """Configuration for MLP models."""
 
     model_type: str = "mlp"
-    hidden_sizes: List[int] = field(default_factory=lambda: [64, 32])
+    hidden_sizes: list[int] = field(default_factory=lambda: [64, 32])
     activation: str = "relu"
 
 

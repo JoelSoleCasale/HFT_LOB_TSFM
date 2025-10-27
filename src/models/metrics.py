@@ -6,7 +6,6 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Dict, Any, Optional, List
 import wandb
 from .utils import calculate_trade_accuracy
 
@@ -14,9 +13,7 @@ from .utils import calculate_trade_accuracy
 class MetricsLogger:
     """WandB-based metrics logger."""
 
-    def __init__(
-        self, project: str, entity: Optional[str] = None, tags: Optional[List[str]] = None
-    ):
+    def __init__(self, project: str, entity: str | None = None, tags: list[str] | None = None):
         self.project = project
         self.entity = entity
         self.tags = tags or []
@@ -28,19 +25,19 @@ class MetricsLogger:
             wandb.init(project=self.project, entity=self.entity, tags=self.tags, reinit=True)
             self._initialized = True
 
-    def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
         """Log numerical metrics to WandB."""
         self._ensure_initialized()
         if step is not None:
             metrics["step"] = step
         wandb.log(metrics)
 
-    def log_image(self, name: str, image: Any, step: Optional[int] = None) -> None:
+    def log_image(self, name: str, image: object, step: int | None = None) -> None:
         """Log an image to WandB."""
         self._ensure_initialized()
         wandb.log({name: wandb.Image(image)}, step=step)
 
-    def log_histogram(self, name: str, values: np.ndarray, step: Optional[int] = None) -> None:
+    def log_histogram(self, name: str, values: np.ndarray, step: int | None = None) -> None:
         """Log a histogram to WandB."""
         self._ensure_initialized()
         wandb.log({name: wandb.Histogram(values)}, step=step)
@@ -76,7 +73,7 @@ class MetricsCalculator:
 
     @staticmethod
     def plot_confusion_matrix(
-        confusion_matrix: np.ndarray, class_names: Optional[List[str]] = None
+        confusion_matrix: np.ndarray, class_names: list[str] | None = None
     ) -> plt.Figure:
         """Create a confusion matrix plot."""
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -103,7 +100,7 @@ class MetricsCalculator:
     def plot_trade_accuracy_vs_threshold(
         predictions: torch.Tensor,
         true_labels: torch.Tensor,
-        thresholds: Optional[np.ndarray] = None,
+        thresholds: np.ndarray | None = None,
         num_points: int = 50,
     ) -> plt.Figure:
         """
@@ -165,7 +162,7 @@ class MetricsCalculator:
     @staticmethod
     def calculate_classification_metrics(
         predictions: torch.Tensor, true_labels: torch.Tensor
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate comprehensive classification metrics."""
         from sklearn.metrics import (
             accuracy_score,
@@ -220,7 +217,7 @@ class MetricsCalculator:
         return metrics
 
 
-def create_metrics_logger(logging_config) -> Optional[MetricsLogger]:
+def create_metrics_logger(logging_config) -> MetricsLogger | None:
     """Create a metrics logger based on logging configuration."""
     if logging_config.wandb_enabled:
         return MetricsLogger(

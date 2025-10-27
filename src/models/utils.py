@@ -5,7 +5,6 @@ Utility functions for model training and inference.
 import torch
 import torch.nn as nn
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
 from loguru import logger
 
 
@@ -28,8 +27,8 @@ def get_device(device: str = "auto") -> torch.device:
 def save_model(
     model: nn.Module,
     save_path: str,
-    config: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    config: dict[str, object] | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> None:
     """
     Save a trained model with optional configuration and metadata.
@@ -61,8 +60,8 @@ def save_model(
 
 
 def load_model(
-    load_path: str, model_class: nn.Module, device: Optional[torch.device] = None
-) -> Tuple[nn.Module, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    load_path: str, model_class: nn.Module, device: torch.device | None = None
+) -> tuple[nn.Module, dict[str, object] | None, dict[str, object] | None]:
     """
     Load a trained model from file.
 
@@ -157,7 +156,7 @@ def calculate_trade_accuracy(
 
 def calculate_classification_metrics(
     predictions: torch.Tensor, targets: torch.Tensor, num_classes: int, per_class: bool = False
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Calculate classification metrics including precision, recall, and F1-score.
 

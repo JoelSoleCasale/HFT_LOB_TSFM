@@ -3,7 +3,6 @@ Configuration management for model training.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 from pathlib import Path
 import yaml
 from definitions import ROOT_DIR
@@ -44,11 +43,11 @@ class TrainingConfig:
     early_stopping_patience: int = 10
     weight_decay: float = 1e-5
     optimizer: str = "adam"  # "adam", "sgd", "adamw", "rmsprop"
-    scheduler: Optional[str] = None  # "cosine", "step", "plateau", None
-    scheduler_params: Dict[str, Any] = field(default_factory=dict)
+    scheduler: str | None = None  # "cosine", "step", "plateau", None
+    scheduler_params: dict[str, object] = field(default_factory=dict)
     loss_function: str = "cross_entropy"  # "cross_entropy", "mse", "mae", "focal"
-    loss_params: Dict[str, Any] = field(default_factory=dict)
-    gradient_clip_norm: Optional[float] = None
+    loss_params: dict[str, object] = field(default_factory=dict)
+    gradient_clip_norm: float | None = None
     mixed_precision: bool = False
 
 
@@ -57,7 +56,7 @@ class LoggingConfig:
     """Configuration for logging and experiment tracking."""
 
     project_name: str = "financial-models"
-    experiment_name: Optional[str] = None
+    experiment_name: str | None = None
     log_file: str = str(ROOT_DIR / "logs/training.log")
     model_save_path: str = str(ROOT_DIR / "model_checkpoint/trained_model.pth")
     checkpoint_dir: str = str(ROOT_DIR / "model_checkpoint/checkpoints")
@@ -65,8 +64,8 @@ class LoggingConfig:
     # Wandb configuration
     wandb_enabled: bool = True
     wandb_project: str = "financial-models"
-    wandb_entity: Optional[str] = None
-    wandb_tags: List[str] = field(default_factory=list)
+    wandb_entity: str | None = None
+    wandb_tags: list[str] = field(default_factory=list)
 
     # Metrics logging
     log_metrics_frequency: int = 1  # Log every N epochs
@@ -102,7 +101,7 @@ class ModelConfig:
         elif isinstance(self.architecture, MLPConfig) and self.architecture.model_type != "mlp":
             raise ValueError("MLPConfig must have model_type='mlp'")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Convert configuration to dictionary for logging."""
         return {
             "data": self.data.__dict__,
@@ -114,7 +113,7 @@ class ModelConfig:
         }
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "ModelConfig":
+    def from_dict(cls, config_dict: dict[str, object]) -> "ModelConfig":
         """Create configuration from dictionary."""
         # Extract sub-configurations
         data_config = DataConfig(**config_dict.get("data", {}))

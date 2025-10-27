@@ -9,7 +9,9 @@ import torch.nn as nn
 class FocalLoss(nn.Module):
     """Focal Loss implementation for handling class imbalance."""
 
-    def __init__(self, alpha: float | list = 1.0, gamma: float = 2.0, reduction: str = "mean"):
+    def __init__(
+        self, alpha: float | list[object] = 1.0, gamma: float = 2.0, reduction: str = "mean"
+    ):
         super().__init__()
         self.multi_class = False
         self.alpha = alpha
