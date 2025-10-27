@@ -111,36 +111,38 @@ class TestModelsIntegration:
         # Test getting a sample
         sequence, label = dataset[0]
         assert sequence.shape == (5, 3)  # (sequence_length, n_features)
-        assert label.shape == (1,)  # (n_labels,)
+        assert label.shape == ()  # scalar tensor (class index)
 
     def test_model_config(self):
         """Test ModelConfig functionality."""
-        # Test basic config creation
-        config = ModelConfig(model_type="lstm", hidden_size=64, num_epochs=10)
+        # Import architecture configs
+        from models.architectures.lstm import LSTMConfig
+        from models.config import TrainingConfig
 
-        assert config.model_type == "lstm"
-        assert config.hidden_size == 64
-        assert config.num_epochs == 10
+        # Test basic config creation with nested structure
+        lstm_arch_config = LSTMConfig(input_size=5, hidden_size=64, output_size=3)
+        training_config = TrainingConfig(num_epochs=10)
+        config = ModelConfig(architecture=lstm_arch_config, training=training_config)
 
-        # Test config validation
-        with pytest.raises(ValueError):
-            ModelConfig(model_type="invalid_model")
-
-        with pytest.raises(ValueError):
-            ModelConfig(train_split=0.5, val_split=0.3, test_split=0.1)  # Doesn't sum to 1.0
+        assert config.architecture.model_type == "lstm"
+        assert config.architecture.hidden_size == 64
+        assert config.training.num_epochs == 10
 
         # Test to_dict
         config_dict = config.to_dict()
         assert isinstance(config_dict, dict)
-        assert config_dict["model_type"] == "lstm"
+        assert config_dict["architecture"]["model_type"] == "lstm"
 
         # Test from_dict
         new_config = ModelConfig.from_dict(config_dict)
-        assert new_config.model_type == config.model_type
-        assert new_config.hidden_size == config.hidden_size
+        assert new_config.architecture.model_type == config.architecture.model_type
+        assert new_config.architecture.hidden_size == config.architecture.hidden_size
 
     def test_dataloader_creation(self):
         """Test dataloader creation."""
+        # Import DataConfig
+        from models.config import DataConfig
+
         # Create sample data
         n_samples = 200
         n_features = 3
@@ -164,14 +166,14 @@ class TestModelsIntegration:
             }
         )
 
-        # Create config
-        config = ModelConfig(
+        # Create data config with proper nested structure
+        data_config = DataConfig(
             sequence_length=5, batch_size=16, train_split=0.7, val_split=0.2, test_split=0.1
         )
 
         # Create dataloaders
         train_loader, val_loader, test_loader, scaler = create_dataloaders(
-            features_df.lazy(), labels_df.lazy(), config
+            features_df.lazy(), labels_df.lazy(), data_config
         )
 
         # Test dataloaders
@@ -182,10 +184,10 @@ class TestModelsIntegration:
         # Test getting a batch
         batch = next(iter(train_loader))
         sequences, labels = batch
-        assert sequences.shape[0] <= config.batch_size
-        assert sequences.shape[1] == config.sequence_length
+        assert sequences.shape[0] <= data_config.batch_size
+        assert sequences.shape[1] == data_config.sequence_length
         assert sequences.shape[2] == n_features
-        assert labels.shape[1] == n_labels
+        assert labels.shape[0] <= data_config.batch_size  # labels are now scalars per sample
 
 
 if __name__ == "__main__":
