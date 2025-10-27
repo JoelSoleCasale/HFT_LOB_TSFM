@@ -21,10 +21,11 @@ from .extractors.orderbook_features import (
     MidPriceFeatures,
     OrderbookImbalanceFeatures,
     SpreadFeatures,
+    AdvancedOrderbookFeatures,
 )
 from .extractors.trade_features import TradeFlowFeatures
 from .labels.price_labels import MidPriceReturnLabel
-from .labels.directional_labels import DirectionalLabel
+from .labels.directional_labels import DirectionalLabel, SmoothedDirectionalLabel
 
 __all__ = [
     # Base
@@ -41,6 +42,8 @@ __all__ = [
     "OrderbookImbalanceFeatures",
     "SpreadFeatures",
     "TradeFlowFeatures",
+    "AdvancedOrderbookFeatures",
     "MidPriceReturnLabel",
     "DirectionalLabel",
+    "SmoothedDirectionalLabel",
 ]

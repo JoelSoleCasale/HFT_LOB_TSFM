@@ -39,7 +39,7 @@ def main():
 
     # Configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 1
+    N_DAYS = 10
 
     print("Loading orderbook data...")
 
@@ -56,7 +56,7 @@ def main():
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
-        .sample_by_time(time_delta=100_000_000, interpolate=True)
+        .sample_by_time(time_delta=1_000_000_000, interpolate=True)
     )
 
     # Ignore first second
@@ -71,18 +71,16 @@ def main():
 
     # Build feature pipeline
     feature_pipeline = FeaturePipeline()
-    feature_pipeline.add_extractor(FeatureExtractorRegistry.create("mid_price")).add_extractor(
-        FeatureExtractorRegistry.create("orderbook_imbalance")
-    )
+    feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"horizons": [250], "threshold": 1e-4})
+    directional_return_label = DirectionalLabel(config={"window": 128, "threshold": 1e-4})
 
     print("Extracting features and labels...")
 
     # Extract features and labels
-    features = feature_pipeline.extract_all(input_space).lazy()
-    labels = directional_return_label.extract(input_space).lazy()
+    features = feature_pipeline.extract_all(input_space)
+    labels = directional_return_label.extract(input_space)
 
     print(f"Features shape: {features.collect().shape}")
     print(f"Labels shape: {labels.collect().shape}")
@@ -100,7 +98,7 @@ def main():
     # Create model configuration with new structure
     # Example 1: LSTM Configuration
     lstm_config = LSTMConfig(
-        input_size=4,  # mid_price + orderbook_imbalance
+        input_size=len(features.columns) - 1,  # exclude timestamp
         hidden_size=128,
         num_layers=2,
         output_size=3,  # -1, 0, 1 for directional labels
@@ -128,10 +126,16 @@ def main():
     #     dropout=0.2,
     # )
 
+    class_weights = [0.0, 0.0, 0.0]
+
+    for label_value, count in label_counts.iter_rows():
+        freq = count / total_samples
+        class_weights[label_value + 1] = 1 / freq
+
     config = ModelConfig(
         architecture=lstm_config,  # Use lstm_config, transformer_config, or mlp_config
         data=DataConfig(
-            sequence_length=100,
+            sequence_length=128,
             batch_size=1024,
             train_split=0.8,
             val_split=0.1,
@@ -143,7 +147,8 @@ def main():
             early_stopping_patience=5,
             optimizer="adam",  # "adam", "adamw", "sgd", "rmsprop"
             scheduler="cosine",  # "cosine", "step", "plateau", None
-            loss_function="cross_entropy",  # "cross_entropy", "mse", "mae", "focal"
+            loss_function="focal",  # "cross_entropy", "mse", "mae", "focal"
+            loss_params={"alpha": class_weights, "gamma": 2.0},
         ),
         logging=LoggingConfig(
             project_name="financial-models",

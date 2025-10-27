@@ -32,6 +32,7 @@ from .architectures import (
     MLPConfig,
 )
 from .metrics import MetricsCalculator, MetricsLogger, create_metrics_logger
+from .losses import FocalLoss
 
 __all__ = [
     # Model architectures
@@ -64,4 +65,6 @@ __all__ = [
     "MetricsCalculator",
     "MetricsLogger",
     "create_metrics_logger",
+    # Losses
+    "FocalLoss",
 ]
