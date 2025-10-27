@@ -345,7 +345,7 @@ class ModelTrainer:
                 tags=logging_config.wandb_tags,
                 config=self.config.to_dict(),
             )
-            wandb.watch(self.model, log="all", log_freq=100)
+            # wandb.watch(self.model, log="all", log_freq=100)
 
         # Training loop
         best_val_loss = float("inf")

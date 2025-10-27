@@ -39,7 +39,7 @@ def main():
 
     # Configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 10
+    N_DAYS = 1
 
     print("Loading orderbook data...")
 

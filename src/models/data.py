@@ -85,11 +85,9 @@ class FinancialDataset(Dataset):
         # Expecting directional labels in {-1, 0, 1} → map to {0, 1, 2}
         if self.labels.ndim == 2 and self.labels.shape[1] == 1:
             labels_1d = self.labels.squeeze(1)
-            unique_vals = np.unique(labels_1d[~np.isnan(labels_1d)])
+            unique_vals = np.unique(labels_1d)
             # Only apply mapping if labels look like directional labels
-            if set(unique_vals.tolist()).issuperset({-1, 0, 1}) or set(
-                unique_vals.tolist()
-            ).issubset({-1, 0, 1}):
+            if set(unique_vals.tolist()).issubset({-1, 0, 1}):
                 mapping = {-1: 0, 0: 1, 1: 2}
                 # Vectorized mapping; for any unexpected values, fall back to 1 (neutral)
                 mapped = np.vectorize(lambda v: mapping.get(int(v), 1))(labels_1d)
@@ -161,6 +159,9 @@ class FinancialDataset(Dataset):
 
     def _get_valid_sequence_indices(self) -> List[int]:
         """Get indices where we can create valid sequences."""
+        if not torch.isnan(self.features).any():
+            return list(range(len(self.features) - self.sequence_length + 1))
+
         valid_indices = []
         for i in range(len(self.features) - self.sequence_length + 1):
             # Check if the sequence has any NaN values
@@ -310,10 +311,6 @@ def prepare_data_for_training(
     train_loader, val_loader, test_loader, scaler = create_dataloaders(
         features, labels, data_config, feature_columns, label_columns
     )
-
-    # Get feature and label names from the first batch
-    sample_batch = next(iter(train_loader))
-    sample_sequence, sample_label = sample_batch
 
     # Create a temporary dataset to get column names
     temp_dataset = FinancialDataset(
