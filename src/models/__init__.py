@@ -33,7 +33,12 @@ from .architectures import (
     TransformerConfig,
     MLPConfig,
 )
-from .metrics import MetricsCalculator, MetricsLogger
+from .metrics import (
+    create_trading_suite,
+    create_classification_suite,
+    MetricSuite,
+)
+from .metrics.logger import WandbLogger
 from .losses import FocalLoss
 from .callbacks import (
     Callback,
@@ -82,8 +87,10 @@ __all__ = [
     "TransformerConfig",
     "MLPConfig",
     # Metrics
-    "MetricsCalculator",
-    "MetricsLogger",
+    "create_trading_suite",
+    "create_classification_suite",
+    "MetricSuite",
+    "WandbLogger",
     # Losses
     "FocalLoss",
     # Callbacks

@@ -14,7 +14,7 @@ from features import (
     InputSpace,
     FeaturePipeline,
     FeatureExtractorRegistry,
-    DirectionalLabel,
+    SmoothedDirectionalLabel,
 )
 from models import (
     ModelConfig,
@@ -70,7 +70,7 @@ def main():
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"window": 128, "threshold": 5e-4})
+    directional_return_label = SmoothedDirectionalLabel(config={"window": 128, "threshold": 1e-5})
 
     print("Extracting features and labels...")
 
@@ -136,6 +136,7 @@ def main():
             train_split=0.8,
             val_split=0.1,
             test_split=0.1,
+            device="cuda",
         ),
         training=TrainingConfig(
             learning_rate=0.001,
@@ -145,6 +146,7 @@ def main():
             scheduler="cosine",  # "cosine", "step", "plateau", None
             loss_function="focal",  # "cross_entropy", "mse", "mae", "focal"
             loss_params={"alpha": class_weights, "gamma": 2.0},
+            mixed_precision=True,
         ),
         logging=LoggingConfig(
             project_name="financial-models",
@@ -163,16 +165,11 @@ def main():
         features=features,
         labels=labels,
         config=config,
-        feature_columns=None,  # Will auto-detect
-        label_columns=None,  # Will auto-detect
+        feature_columns=None,
+        label_columns=None,
     )
 
     print("Training completed!")
-    print(f"Best validation loss: {results['best_val_loss']:.4f}")
-    print(f"Total training time: {results['total_training_time']:.2f} seconds")
-
-    if results["test_metrics"]:
-        print(f"Test accuracy: {results['test_metrics'].get('val_accuracy', 'N/A'):.4f}")
 
 
 if __name__ == "__main__":

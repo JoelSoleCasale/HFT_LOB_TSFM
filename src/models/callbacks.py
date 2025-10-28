@@ -4,15 +4,14 @@ Callback system for training loop.
 
 from pathlib import Path
 from loguru import logger
-import matplotlib.pyplot as plt
+import time
+import torch
 from typing import Any
 
-import torch
-
-from .metrics import MetricsCalculator, MetricsLogger
+from .metrics.logger import WandbLogger
+from .metrics.presets import create_trading_suite
 from .config import LoggingConfig
 from .utils import save_model
-import time
 
 
 class Callback:
@@ -26,10 +25,28 @@ class Callback:
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
-        """Called at the end of each epoch."""
+        """
+        Called at the end of each epoch.
+
+        Args:
+            trainer: The trainer instance
+            epoch: Current epoch number
+            train_predictions: Training predictions (logits)
+            train_targets: Training targets
+            train_loss: Average training loss
+            train_time: Training epoch time in seconds
+            val_predictions: Validation predictions (logits)
+            val_targets: Validation targets
+            val_loss: Average validation loss
+        """
         pass
 
     def on_train_end(
@@ -64,12 +81,15 @@ class EarlyStopping(Callback):
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
         """Check if training should stop based on validation loss."""
-        val_loss = val_metrics.get("val_loss", float("inf"))
-
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
             self.counter = 0
@@ -107,12 +127,15 @@ class ModelCheckpoint(Callback):
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
         """Save model checkpoint if validation loss has improved."""
-        val_loss = val_metrics.get("val_loss", float("inf"))
-
         if not self.save_best_only or val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
             checkpoint_path = self.checkpoint_dir / f"checkpoint_epoch_{epoch+1}.pth"
@@ -139,6 +162,8 @@ class WandbMetricsLogger(Callback):
         log_config: LoggingConfig,
         train_config: dict[str, Any],
         log_frequency: int = 1,
+        num_classes: int = 3,
+        class_names: list[str] | None = None,
     ):
         """
         Initialize WandB metrics logger callback.
@@ -147,30 +172,72 @@ class WandbMetricsLogger(Callback):
             log_config: Logging configuration
             train_config: Training configuration dictionary
             log_frequency: Log metrics every N epochs
+            num_classes: Number of classes for classification
+            class_names: Optional list of class names
         """
         self.log_config = log_config
         self.train_config = train_config
         self.log_frequency = log_frequency
-        self.metrics_logger = None
+        self.num_classes = num_classes
+        self.class_names = class_names or [f"class_{i}" for i in range(num_classes)]
 
-        self.metrics_logger = MetricsLogger(log_config=log_config, train_config=train_config)
+        # Create WandB logger
+        self.wandb_logger = WandbLogger(log_config=log_config, train_config=train_config)
+
+        # Create metrics suite
+        self.metrics_suite = create_trading_suite(
+            num_classes=num_classes,
+            class_names=self.class_names,
+            trade_threshold=0.5,
+        )
 
     def on_train_begin(self, trainer: Any) -> None:
         """Initialize WandB run at the beginning of training."""
-        self.metrics_logger._ensure_initialized()
+        self.wandb_logger._ensure_initialized()
 
     def on_epoch_end(
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
         """Log metrics to WandB at the end of each epoch."""
         # Log metrics at specified frequency
         if epoch % self.log_frequency == 0:
-            self.metrics_logger.log_metrics(train_metrics, step=epoch)
-            self.metrics_logger.log_metrics(val_metrics, step=epoch)
+            from models.metrics import calculate_accuracy
+
+            # Compute training metrics
+            train_accuracy = calculate_accuracy(train_predictions, train_targets)
+            train_metrics = {
+                "train_loss": train_loss,
+                "train_accuracy": train_accuracy,
+                "epoch_time": train_time,
+            }
+
+            # Compute validation metrics using the metrics suite
+            val_accuracy = calculate_accuracy(val_predictions, val_targets)
+            val_metrics = {
+                "val_loss": val_loss,
+                "val_accuracy": val_accuracy,
+            }
+
+            # Add detailed classification metrics for validation
+            try:
+                detailed_metrics = self.metrics_suite.compute_all(val_predictions, val_targets)
+                for key, value in detailed_metrics.items():
+                    val_metrics[f"val_{key}"] = value
+            except Exception as e:
+                logger.warning(f"Failed to compute detailed metrics: {e}")
+
+            # Combine and log
+            combined_metrics = {**train_metrics, **val_metrics}
+            self.wandb_logger.log_metrics(combined_metrics, step=epoch)
 
     def on_train_end(
         self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]
@@ -178,18 +245,30 @@ class WandbMetricsLogger(Callback):
         """Log final plots and close WandB run."""
         y_pred, y_true = test_predictions
 
-        if self.log_config.log_confusion_matrix:
-            confusion_matrix = MetricsCalculator.calculate_confusion_matrix(y_pred, y_true)
-            cm_fig = MetricsCalculator.plot_confusion_matrix(confusion_matrix)
-            self.metrics_logger.log_image("test_confusion_matrix", cm_fig)
-            plt.close(cm_fig)
+        # Compute all metrics
+        try:
+            test_metrics = self.metrics_suite.compute_all(y_pred, y_true)
+            self.wandb_logger.log_metrics(test_metrics)
+            logger.info(f"Final test metrics: {test_metrics}")
+        except Exception as e:
+            logger.warning(f"Failed to compute final metrics: {e}")
 
-        if self.log_config.log_trade_accuracy_vs_threshold:
-            trade_acc_fig = MetricsCalculator.plot_trade_accuracy_vs_threshold(y_pred, y_true)
-            self.metrics_logger.log_image("trade_accuracy_vs_threshold", trade_acc_fig)
-            plt.close(trade_acc_fig)
+        # Generate and log all plots
+        try:
+            # Get training history for loss landscape plot
+            history = {}
+            for callback in trainer.callbacks:
+                if hasattr(callback, "get_history"):
+                    history = callback.get_history()
+                    break
 
-        self.metrics_logger.close()
+            plots = self.metrics_suite.generate_all_plots(y_pred, y_true, history=history)
+            self.wandb_logger.log_plots(plots)
+            logger.info(f"Logged {len(plots)} plots to WandB")
+        except Exception as e:
+            logger.warning(f"Failed to generate plots: {e}")
+
+        self.wandb_logger.close()
 
 
 class TrainingHistoryTracker(Callback):
@@ -208,14 +287,24 @@ class TrainingHistoryTracker(Callback):
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
         """Record training metrics to history."""
-        self.history["train_loss"].append(train_metrics.get("train_loss", 0.0))
-        self.history["val_loss"].append(val_metrics.get("val_loss", 0.0))
-        self.history["train_accuracy"].append(train_metrics.get("train_accuracy", 0.0))
-        self.history["val_accuracy"].append(val_metrics.get("val_accuracy", 0.0))
+        from models.metrics import calculate_accuracy
+
+        train_accuracy = calculate_accuracy(train_predictions, train_targets)
+        val_accuracy = calculate_accuracy(val_predictions, val_targets)
+
+        self.history["train_loss"].append(train_loss)
+        self.history["val_loss"].append(val_loss)
+        self.history["train_accuracy"].append(train_accuracy)
+        self.history["val_accuracy"].append(val_accuracy)
 
     def on_train_end(
         self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]
@@ -245,20 +334,29 @@ class ConsoleLogger(Callback):
         self,
         trainer: Any,
         epoch: int,
-        train_metrics: dict[str, float],
-        val_metrics: dict[str, float],
+        train_predictions: torch.Tensor,
+        train_targets: torch.Tensor,
+        train_loss: float,
+        train_time: float,
+        val_predictions: torch.Tensor,
+        val_targets: torch.Tensor,
+        val_loss: float,
     ) -> None:
         """Log epoch metrics to console."""
+        from models.metrics import calculate_accuracy
+
         training_config = trainer.config.get_training_config()
-        epoch_time = train_metrics.get("epoch_time", 0.0)
+
+        train_accuracy = calculate_accuracy(train_predictions, train_targets)
+        val_accuracy = calculate_accuracy(val_predictions, val_targets)
 
         logger.info(
             f"Epoch {epoch+1}/{training_config.num_epochs} - "
-            f"Train Loss: {train_metrics.get('train_loss', 0.0):.4f}, "
-            f"Val Loss: {val_metrics.get('val_loss', 0.0):.4f}, "
-            f"Train Acc: {train_metrics.get('train_accuracy', 0.0):.4f}, "
-            f"Val Acc: {val_metrics.get('val_accuracy', 0.0):.4f}, "
-            f"Time: {epoch_time:.2f}s"
+            f"Train Loss: {train_loss:.4f}, "
+            f"Val Loss: {val_loss:.4f}, "
+            f"Train Acc: {train_accuracy:.4f}, "
+            f"Val Acc: {val_accuracy:.4f}, "
+            f"Time: {train_time:.2f}s"
         )
 
     def on_train_end(

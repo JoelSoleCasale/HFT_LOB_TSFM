@@ -23,6 +23,9 @@ class DataConfig:
     batch_size: int = 32
     shuffle: bool = True
     num_workers: int = 0
+    device: str = "cpu"
+    num_classes: int = 3
+    class_names: list[str] | None = field(default_factory=lambda: ["-1", "0", "1"])
 
     def __post_init__(self):
         """Validate data configuration."""

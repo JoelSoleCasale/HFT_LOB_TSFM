@@ -16,8 +16,6 @@ from models.model import create_model, FinancialTimeSeriesModel
 from models.utils import (
     get_device,
     save_model,
-    calculate_accuracy,
-    calculate_classification_metrics,
     set_seed,
     count_parameters,
 )
@@ -108,12 +106,20 @@ class ModelTrainer:
             loss_name=training_config.loss_function, loss_params=training_config.loss_params
         )
 
-    def _train_epoch(self, train_loader: DataLoader) -> dict[str, float]:
-        """Train for one epoch."""
+    def _train_epoch(
+        self, train_loader: DataLoader
+    ) -> tuple[torch.Tensor, torch.Tensor, float, float]:
+        """
+        Train for one epoch.
+
+        Returns:
+            Tuple of (all_predictions, all_targets, avg_loss, epoch_time)
+        """
         self.model.train()
         total_loss = 0.0
-        total_accuracy = 0.0
         num_batches = 0
+        all_predictions = []
+        all_targets = []
 
         training_config = self.config.get_training_config()
 
@@ -167,29 +173,34 @@ class ModelTrainer:
                 # Optimizer step
                 self.optimizer.step()
 
-            # Calculate metrics
+            # Store loss and predictions
             total_loss += loss.item()
-            accuracy = calculate_accuracy(outputs, labels)
-            total_accuracy += accuracy
             num_batches += 1
+            all_predictions.append(outputs.detach().cpu())
+            all_targets.append(labels.cpu())
 
             # Update progress bar (only if tqdm is enabled)
             if training_config.use_tqdm:
-                progress_bar.set_postfix(
-                    {"loss": f"{loss.item():.4f}", "acc": f"{total_accuracy/(batch_idx+1):.4f}"}
-                )
+                progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        return {
-            "train_loss": total_loss / num_batches,
-            "train_accuracy": total_accuracy / num_batches,
-            "epoch_time": time.time() - epoch_start_time,
-        }
+        avg_loss = total_loss / num_batches
+        epoch_time = time.time() - epoch_start_time
 
-    def _validate_epoch(self, val_loader: DataLoader) -> dict[str, float]:
-        """Validate for one epoch."""
+        # Concatenate all predictions and targets
+        all_predictions = torch.cat(all_predictions, dim=0)
+        all_targets = torch.cat(all_targets, dim=0)
+
+        return all_predictions, all_targets, avg_loss, epoch_time
+
+    def _validate_epoch(self, val_loader: DataLoader) -> tuple[torch.Tensor, torch.Tensor, float]:
+        """
+        Validate for one epoch.
+
+        Returns:
+            Tuple of (all_predictions, all_targets, avg_loss)
+        """
         self.model.eval()
         total_loss = 0.0
-        total_accuracy = 0.0
         all_predictions = []
         all_labels = []
         num_batches = 0
@@ -203,34 +214,19 @@ class ModelTrainer:
                 outputs = self.model(sequences)
                 loss = self.criterion(outputs, labels)
 
-                # Calculate metrics
+                # Store loss and predictions
                 total_loss += loss.item()
-                accuracy = calculate_accuracy(outputs, labels)
-                total_accuracy += accuracy
                 num_batches += 1
 
-                # Store predictions and labels for detailed metrics
+                # Store predictions and labels
                 all_predictions.append(outputs.cpu())
                 all_labels.append(labels.cpu())
 
-        # Calculate detailed metrics
+        avg_loss = total_loss / num_batches
         all_predictions = torch.cat(all_predictions, dim=0)
         all_labels = torch.cat(all_labels, dim=0)
 
-        metrics = {
-            "val_loss": total_loss / num_batches,
-            "val_accuracy": total_accuracy / num_batches,
-        }
-
-        # Add classification metrics
-        n_classes = self.config.get_architecture_config().output_size
-        if n_classes > 1:
-            classification_metrics = calculate_classification_metrics(
-                all_predictions, all_labels, n_classes
-            )
-            metrics.update(classification_metrics)
-
-        return metrics
+        return all_predictions, all_labels, avg_loss
 
     def train(
         self,
@@ -270,18 +266,30 @@ class ModelTrainer:
 
         for epoch in range(training_config.num_epochs):
 
-            train_metrics = self._train_epoch(train_loader)
-            val_metrics = self._validate_epoch(val_loader)
+            train_predictions, train_targets, train_loss, train_time = self._train_epoch(
+                train_loader
+            )
+            val_predictions, val_targets, val_loss = self._validate_epoch(val_loader)
 
             for callback in self.callbacks:
-                callback.on_epoch_end(self, epoch, train_metrics, val_metrics)
+                callback.on_epoch_end(
+                    self,
+                    epoch,
+                    train_predictions,
+                    train_targets,
+                    train_loss,
+                    train_time,
+                    val_predictions,
+                    val_targets,
+                    val_loss,
+                )
 
             if self.should_stop:
                 break
 
             if self.scheduler is not None:
                 if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
-                    self.scheduler.step(val_metrics["val_loss"])
+                    self.scheduler.step(val_loss)
                 else:
                     self.scheduler.step()
 
@@ -324,7 +332,30 @@ class ModelTrainer:
             raise ValueError("Model not trained yet. Call train() first.")
 
         self.model.eval()
-        return self._validate_epoch(test_loader)
+        predictions, targets, avg_loss = self._validate_epoch(test_loader)
+
+        # Compute metrics using the metrics system
+        from models.metrics.calculators import AccuracyCalculator, PrecisionRecallF1Calculator
+
+        metrics = {"test_loss": avg_loss}
+
+        # Calculate metrics
+        acc_calc = AccuracyCalculator()
+        acc_result = acc_calc.calculate(predictions, targets)
+        metrics["test_accuracy"] = acc_result.value
+
+        # Add precision, recall, F1
+        macro_calc = PrecisionRecallF1Calculator("macro")
+        macro_results = macro_calc.calculate(predictions, targets)
+        for result in macro_results:
+            metrics[f"test_{result.name}"] = result.value
+
+        weighted_calc = PrecisionRecallF1Calculator("weighted")
+        weighted_results = weighted_calc.calculate(predictions, targets)
+        for result in weighted_results:
+            metrics[f"test_{result.name}"] = result.value
+
+        return metrics
 
     def predict(self, data_loader: DataLoader) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -412,6 +443,8 @@ def train_model(
                 log_config=logging_config,
                 train_config=config.to_dict(),
                 log_frequency=logging_config.log_metrics_frequency,
+                num_classes=config.get_data_config().num_classes,
+                class_names=config.get_data_config().class_names,
             )
         )
 
