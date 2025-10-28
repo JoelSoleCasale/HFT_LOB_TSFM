@@ -20,28 +20,40 @@ class TransformerConfig(ModelArchitectureConfig):
     num_layers: int = 2
     dim_feedforward: int = 256
     activation: str = "relu"
-    max_sequence_length: int = 5000
+    sequence_length: int = 5000
+    learned_positional_encoding: bool = False  # If True, use learned PE; if False, use sinusoidal
 
 
 class PositionalEncoding(nn.Module):
     """
     Positional encoding for transformer models.
+    Supports both fixed sinusoidal and learned positional encodings.
     """
 
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+    def __init__(
+        self, d_model: int, max_len: int = 5000, dropout: float = 0.1, learned: bool = False
+    ):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
+        self.learned = learned
 
-        # Create positional encoding matrix
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        if learned:
+            # Learnable positional embeddings
+            self.pe = nn.Parameter(torch.zeros(1, max_len, d_model))
+            nn.init.normal_(self.pe, mean=0, std=0.02)
+        else:
+            # Fixed sinusoidal positional encoding
+            pe = torch.zeros(max_len, d_model)
+            position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(
+                torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+            )
 
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            pe = pe.unsqueeze(0)  # Shape: (1, max_len, d_model)
 
-        self.register_buffer("pe", pe)
+            self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -53,7 +65,8 @@ class PositionalEncoding(nn.Module):
         Returns:
             Tensor with positional encoding added
         """
-        x = x + self.pe[: x.size(1), :].transpose(0, 1)
+        seq_len = x.size(1)
+        x = x + self.pe[:, :seq_len, :]
         return self.dropout(x)
 
 
@@ -75,18 +88,23 @@ class TransformerTimeSeriesModel(FinancialTimeSeriesModel):
         dropout: float = 0.2,
         dim_feedforward: int = 256,
         activation: str = "relu",
+        sequence_length: int = 5000,
+        learned_positional_encoding: bool = False,
     ):
         super().__init__(input_size, output_size)
 
         self.d_model = d_model
         self.nhead = nhead
         self.num_layers = num_layers
+        self.sequence_length = sequence_length
 
         # Input projection
         self.input_projection = nn.Linear(input_size, d_model)
 
         # Positional encoding
-        self.pos_encoding = PositionalEncoding(d_model, dropout)
+        self.pos_encoding = PositionalEncoding(
+            d_model, max_len=sequence_length, dropout=dropout, learned=learned_positional_encoding
+        )
 
         # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(

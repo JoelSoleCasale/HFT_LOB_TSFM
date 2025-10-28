@@ -8,11 +8,7 @@ This script demonstrates how to:
 4. Evaluate the trained model
 """
 
-import sys
 from pathlib import Path
-
-# Add src to path
-sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from features import (
     InputSpace,
@@ -39,7 +35,7 @@ def main():
 
     # Configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 10
+    N_DAYS = 31
 
     print("Loading orderbook data...")
 
@@ -51,7 +47,7 @@ def main():
         )
 
     ob_paths = [
-        get_ob_path(d) for d in date_range(FIRST_DATE, FIRST_DATE + timedelta(days=N_DAYS))
+        get_ob_path(d) for d in date_range(FIRST_DATE, FIRST_DATE + timedelta(days=N_DAYS - 1))
     ]
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
@@ -74,7 +70,7 @@ def main():
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"window": 128, "threshold": 1e-4})
+    directional_return_label = DirectionalLabel(config={"window": 128, "threshold": 5e-4})
 
     print("Extracting features and labels...")
 

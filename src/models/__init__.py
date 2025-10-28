@@ -6,6 +6,8 @@ This module provides:
 - Training utilities with wandb integration
 - Data preparation and preprocessing
 - Model configuration management
+- Callback system for extensible training
+- Factory pattern for model components
 """
 
 from .model import create_model
@@ -31,8 +33,26 @@ from .architectures import (
     TransformerConfig,
     MLPConfig,
 )
-from .metrics import MetricsCalculator, MetricsLogger, create_metrics_logger
+from .metrics import MetricsCalculator, MetricsLogger
 from .losses import FocalLoss
+from .callbacks import (
+    Callback,
+    EarlyStopping,
+    ModelCheckpoint,
+    WandbMetricsLogger,
+    TrainingHistoryTracker,
+    ConsoleLogger,
+)
+from .factories import (
+    OPTIMIZER_REGISTRY,
+    SCHEDULER_REGISTRY,
+    CRITERION_REGISTRY,
+    ARCHITECTURE_REGISTRY,
+    create_optimizer,
+    create_scheduler,
+    create_criterion,
+    create_architecture_config,
+)
 
 __all__ = [
     # Model architectures
@@ -64,7 +84,22 @@ __all__ = [
     # Metrics
     "MetricsCalculator",
     "MetricsLogger",
-    "create_metrics_logger",
     # Losses
     "FocalLoss",
+    # Callbacks
+    "Callback",
+    "EarlyStopping",
+    "ModelCheckpoint",
+    "WandbMetricsLogger",
+    "TrainingHistoryTracker",
+    "ConsoleLogger",
+    # Factories and Registries
+    "OPTIMIZER_REGISTRY",
+    "SCHEDULER_REGISTRY",
+    "CRITERION_REGISTRY",
+    "ARCHITECTURE_REGISTRY",
+    "create_optimizer",
+    "create_scheduler",
+    "create_criterion",
+    "create_architecture_config",
 ]

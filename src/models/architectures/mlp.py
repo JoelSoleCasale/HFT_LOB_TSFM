@@ -16,6 +16,7 @@ class MLPConfig(ModelArchitectureConfig):
     model_type: str = "mlp"
     hidden_sizes: list[int] = field(default_factory=lambda: [64, 32])
     activation: str = "relu"
+    sequence_length: int = 128
 
 
 class MLPTimeSeriesModel(FinancialTimeSeriesModel):

@@ -10,7 +10,6 @@ from loguru import logger
 from pathlib import Path
 import time
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 
 from models.model import create_model, FinancialTimeSeriesModel
@@ -23,48 +22,16 @@ from models.utils import (
     count_parameters,
 )
 from models.config import ModelConfig
-from models.metrics import MetricsCalculator, create_metrics_logger
-from models.losses import FocalLoss
+from models.factories import create_optimizer, create_scheduler, create_criterion
+from models.callbacks import (
+    Callback,
+    EarlyStopping,
+    ModelCheckpoint,
+    WandbMetricsLogger,
+    TrainingHistoryTracker,
+    ConsoleLogger,
+)
 from utils import setup_logging
-
-
-class EarlyStopping:
-    """Early stopping utility to prevent overfitting."""
-
-    def __init__(
-        self, patience: int = 10, min_delta: float = 0.0, restore_best_weights: bool = True
-    ):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.restore_best_weights = restore_best_weights
-        self.best_loss = float("inf")
-        self.counter = 0
-        self.best_weights = None
-
-    def __call__(self, val_loss: float, model: nn.Module) -> bool:
-        """
-        Check if training should stop.
-
-        Args:
-            val_loss: Current validation loss
-            model: The model being trained
-
-        Returns:
-            True if training should stop, False otherwise
-        """
-        if val_loss < self.best_loss - self.min_delta:
-            self.best_loss = val_loss
-            self.counter = 0
-            if self.restore_best_weights:
-                self.best_weights = model.state_dict().copy()
-        else:
-            self.counter += 1
-
-        if self.counter >= self.patience:
-            if self.restore_best_weights and self.best_weights is not None:
-                model.load_state_dict(self.best_weights)
-            return True
-        return False
 
 
 class ModelTrainer:
@@ -72,12 +39,13 @@ class ModelTrainer:
     Main training class for deep learning models.
     """
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelConfig, callbacks: list[Callback] | None = None):
         """
         Initialize the trainer.
 
         Args:
             config: Model configuration
+            callbacks: List of callbacks to use during training
         """
         self.config = config
         self.device = get_device(config.device)
@@ -85,9 +53,10 @@ class ModelTrainer:
         self.optimizer = None
         self.scheduler = None
         self.criterion = None
-        self.early_stopping = None
         self.scaler = None
-        self.metrics_logger = None
+        self.callbacks = callbacks or []
+        self.should_stop = False
+        self.test_loader = None  # For use by callbacks
 
         # Set up logging
         setup_logging(config.logging.log_file)
@@ -95,20 +64,17 @@ class ModelTrainer:
         # Set random seed
         set_seed(config.seed)
 
-        # Initialize metrics logger
-        self.metrics_logger = create_metrics_logger(config.logging)
-
         logger.info(f"ModelTrainer initialized with device: {self.device}")
         logger.info(f"Configuration: {config}")
 
-    def _create_model(self, input_size: int, sequence_length: int) -> FinancialTimeSeriesModel:
+    def _create_model(self) -> FinancialTimeSeriesModel:
         """Create the model based on configuration."""
         arch_config = self.config.get_architecture_config()
         model = create_model(**arch_config.params())
         model = model.to(self.device)
 
         logger.info(
-            f"Created {arch_config.model_type} model with {count_parameters(model)} parameters"
+            f"Created {arch_config.model_type} model with {count_parameters(model):,} parameters"
         )
         return model
 
@@ -116,78 +82,31 @@ class ModelTrainer:
         """Create the optimizer based on configuration."""
         training_config = self.config.get_training_config()
 
-        if training_config.optimizer.lower() == "adam":
-            return optim.Adam(
-                self.model.parameters(),
-                lr=training_config.learning_rate,
-                weight_decay=training_config.weight_decay,
-            )
-        elif training_config.optimizer.lower() == "adamw":
-            return optim.AdamW(
-                self.model.parameters(),
-                lr=training_config.learning_rate,
-                weight_decay=training_config.weight_decay,
-            )
-        elif training_config.optimizer.lower() == "sgd":
-            return optim.SGD(
-                self.model.parameters(),
-                lr=training_config.learning_rate,
-                weight_decay=training_config.weight_decay,
-                momentum=0.9,
-            )
-        elif training_config.optimizer.lower() == "rmsprop":
-            return optim.RMSprop(
-                self.model.parameters(),
-                lr=training_config.learning_rate,
-                weight_decay=training_config.weight_decay,
-            )
-        else:
-            raise ValueError(f"Unknown optimizer: {training_config.optimizer}")
+        return create_optimizer(
+            optimizer_name=training_config.optimizer,
+            model_parameters=self.model.parameters(),
+            learning_rate=training_config.learning_rate,
+            weight_decay=training_config.weight_decay,
+        )
 
     def _create_scheduler(self) -> optim.lr_scheduler._LRScheduler | None:
         """Create learning rate scheduler based on configuration."""
         training_config = self.config.get_training_config()
 
-        if training_config.scheduler is None:
-            return None
-
-        if training_config.scheduler.lower() == "cosine":
-            return optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer,
-                T_max=training_config.num_epochs,
-                **training_config.scheduler_params,
-            )
-        elif training_config.scheduler.lower() == "step":
-            return optim.lr_scheduler.StepLR(
-                self.optimizer,
-                step_size=training_config.scheduler_params.get("step_size", 30),
-                gamma=training_config.scheduler_params.get("gamma", 0.1),
-            )
-        elif training_config.scheduler.lower() == "plateau":
-            return optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer,
-                mode="min",
-                patience=training_config.scheduler_params.get("patience", 10),
-                factor=training_config.scheduler_params.get("factor", 0.5),
-            )
-        else:
-            raise ValueError(f"Unknown scheduler: {training_config.scheduler}")
+        return create_scheduler(
+            scheduler_name=training_config.scheduler,
+            optimizer=self.optimizer,
+            scheduler_params=training_config.scheduler_params,
+            num_epochs=training_config.num_epochs,
+        )
 
     def _create_criterion(self) -> nn.Module:
         """Create the loss function based on configuration."""
         training_config = self.config.get_training_config()
 
-        losses = {
-            "cross_entropy": nn.CrossEntropyLoss,
-            "mse": nn.MSELoss,
-            "mae": nn.L1Loss,
-            "focal": FocalLoss,
-        }
-
-        if training_config.loss_function.lower() not in losses:
-            raise ValueError(f"Unknown loss function: {training_config.loss_function}")
-
-        return losses[training_config.loss_function.lower()](**training_config.loss_params)
+        return create_criterion(
+            loss_name=training_config.loss_function, loss_params=training_config.loss_params
+        )
 
     def _train_epoch(self, train_loader: DataLoader) -> dict[str, float]:
         """Train for one epoch."""
@@ -196,22 +115,57 @@ class ModelTrainer:
         total_accuracy = 0.0
         num_batches = 0
 
-        progress_bar = tqdm(train_loader, desc="Training", leave=False)
+        training_config = self.config.get_training_config()
+
+        # Use tqdm only if enabled in config
+        if training_config.use_tqdm:
+            progress_bar = tqdm(train_loader, desc="Training", leave=False)
+        else:
+            progress_bar = train_loader
+
+        epoch_start_time = time.time()
 
         for batch_idx, (sequences, labels) in enumerate(progress_bar):
             sequences = sequences.to(self.device)
             labels = labels.to(self.device)
 
-            # Forward pass
             self.optimizer.zero_grad()
-            outputs = self.model(sequences)
 
-            # Calculate loss
-            loss = self.criterion(outputs, labels)
+            # Forward pass with mixed precision if enabled
+            if training_config.mixed_precision:
+                with torch.autocast(device_type=self.device.type):
+                    outputs = self.model(sequences)
+                    loss = self.criterion(outputs, labels)
 
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
+                # Backward pass with gradient scaling
+                self.scaler.scale(loss).backward()
+
+                # Gradient clipping with unscaling
+                if training_config.gradient_clip_norm is not None:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), training_config.gradient_clip_norm
+                    )
+
+                # Optimizer step with scaling
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                # Standard forward pass
+                outputs = self.model(sequences)
+                loss = self.criterion(outputs, labels)
+
+                # Backward pass
+                loss.backward()
+
+                # Gradient clipping
+                if training_config.gradient_clip_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), training_config.gradient_clip_norm
+                    )
+
+                # Optimizer step
+                self.optimizer.step()
 
             # Calculate metrics
             total_loss += loss.item()
@@ -219,14 +173,16 @@ class ModelTrainer:
             total_accuracy += accuracy
             num_batches += 1
 
-            # Update progress bar
-            progress_bar.set_postfix(
-                {"loss": f"{loss.item():.4f}", "acc": f"{total_accuracy/(batch_idx+1):.4f}"}
-            )
+            # Update progress bar (only if tqdm is enabled)
+            if training_config.use_tqdm:
+                progress_bar.set_postfix(
+                    {"loss": f"{loss.item():.4f}", "acc": f"{total_accuracy/(batch_idx+1):.4f}"}
+                )
 
         return {
             "train_loss": total_loss / num_batches,
             "train_accuracy": total_accuracy / num_batches,
+            "epoch_time": time.time() - epoch_start_time,
         }
 
     def _validate_epoch(self, val_loader: DataLoader) -> dict[str, float]:
@@ -267,9 +223,10 @@ class ModelTrainer:
         }
 
         # Add classification metrics
-        if self.config.get_architecture_config().output_size > 1:
+        n_classes = self.config.get_architecture_config().output_size
+        if n_classes > 1:
             classification_metrics = calculate_classification_metrics(
-                all_predictions, all_labels, self.config.get_architecture_config().output_size
+                all_predictions, all_labels, n_classes
             )
             metrics.update(classification_metrics)
 
@@ -282,7 +239,7 @@ class ModelTrainer:
         test_loader: DataLoader | None = None,
         feature_names: list[str] | None = None,
         label_names: list[str] | None = None,
-    ) -> dict[str, object]:
+    ) -> None:
         """
         Train the model.
 
@@ -294,172 +251,47 @@ class ModelTrainer:
             label_names: Names of label columns
 
         Returns:
-            Dictionary containing training results
+            None
         """
         training_config = self.config.get_training_config()
-        logging_config = self.config.get_logging_config()
-
-        # Get input dimensions from first batch
-        sample_batch = next(iter(train_loader))
-        sample_sequence, sample_label = sample_batch
-        input_size = sample_sequence.shape[2]
-        sequence_length = sample_sequence.shape[1]
 
         # Create model, optimizer, and criterion
-        self.model = self._create_model(input_size, sequence_length)
+        self.model = self._create_model()
         self.optimizer = self._create_optimizer()
         self.scheduler = self._create_scheduler()
         self.criterion = self._create_criterion()
-        self.early_stopping = EarlyStopping(patience=training_config.early_stopping_patience)
 
-        # Initialize WandB if enabled
-        if self.metrics_logger is not None:
-            import wandb
+        # Initialize gradient scaler for mixed precision training
+        if training_config.mixed_precision:
+            self.scaler = torch.amp.GradScaler(self.device)
 
-            wandb.init(
-                project=logging_config.wandb_project,
-                entity=logging_config.wandb_entity,
-                name=logging_config.experiment_name,
-                tags=logging_config.wandb_tags,
-                config=self.config.to_dict(),
-            )
-            # wandb.watch(self.model, log="all", log_freq=100)
-
-        # Training loop
-        best_val_loss = float("inf")
-        training_history = {
-            "train_loss": [],
-            "val_loss": [],
-            "train_accuracy": [],
-            "val_accuracy": [],
-        }
-
-        logger.info(f"Starting training for {training_config.num_epochs} epochs")
-        logger.info(f"Input size: {input_size}, Sequence length: {sequence_length}")
-
-        start_time = time.time()
+        for callback in self.callbacks:
+            callback.on_train_begin(self)
 
         for epoch in range(training_config.num_epochs):
-            epoch_start_time = time.time()
 
-            # Train
             train_metrics = self._train_epoch(train_loader)
-
-            # Validate
             val_metrics = self._validate_epoch(val_loader)
 
-            # Update history
-            training_history["train_loss"].append(train_metrics["train_loss"])
-            training_history["val_loss"].append(val_metrics["val_loss"])
-            training_history["train_accuracy"].append(train_metrics["train_accuracy"])
-            training_history["val_accuracy"].append(val_metrics["val_accuracy"])
+            for callback in self.callbacks:
+                callback.on_epoch_end(self, epoch, train_metrics, val_metrics)
 
-            # Log metrics
-            epoch_time = time.time() - epoch_start_time
-            logger.info(
-                f"Epoch {epoch+1}/{training_config.num_epochs} - "
-                f"Train Loss: {train_metrics['train_loss']:.4f}, "
-                f"Val Loss: {val_metrics['val_loss']:.4f}, "
-                f"Train Acc: {train_metrics['train_accuracy']:.4f}, "
-                f"Val Acc: {val_metrics['val_accuracy']:.4f}, "
-                f"Time: {epoch_time:.2f}s"
-            )
+            if self.should_stop:
+                break
 
-            # Log to metrics logger
-            if (
-                self.metrics_logger is not None
-                and epoch % logging_config.log_metrics_frequency == 0
-            ):
-                log_dict = {
-                    "epoch": epoch + 1,
-                    **train_metrics,
-                    **val_metrics,
-                    "epoch_time": epoch_time,
-                }
-                self.metrics_logger.log_metrics(log_dict, step=epoch)
-
-            # Learning rate scheduling
             if self.scheduler is not None:
                 if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
                     self.scheduler.step(val_metrics["val_loss"])
                 else:
                     self.scheduler.step()
 
-            # Early stopping check
-            if self.early_stopping(val_metrics["val_loss"], self.model):
-                logger.info(f"Early stopping triggered at epoch {epoch+1}")
-                break
-
-            # Save best model
-            if val_metrics["val_loss"] < best_val_loss:
-                best_val_loss = val_metrics["val_loss"]
-                self._save_checkpoint(epoch, val_metrics["val_loss"])
-
-        total_time = time.time() - start_time
-        logger.info(f"Training completed in {total_time:.2f} seconds")
-
-        # Test evaluation
-        test_metrics = {}
-        if test_loader is not None:
-            test_metrics = self._validate_epoch(test_loader)
-            logger.info(f"Test metrics: {test_metrics}")
-
-            # Compute and log confusion matrix on test data
-            predictions, true_labels = self.predict(test_loader)
-            confusion_matrix = MetricsCalculator.calculate_confusion_matrix(
-                predictions, true_labels
-            )
-            logger.info(f"Test confusion matrix:\n{confusion_matrix}")
-
-            if self.metrics_logger is not None:
-                self.metrics_logger.log_metrics({"test": test_metrics})
-
-                # Log confusion matrix as an image
-                if logging_config.log_confusion_matrix:
-                    cm_fig = MetricsCalculator.plot_confusion_matrix(confusion_matrix)
-                    self.metrics_logger.log_image("test_confusion_matrix", cm_fig)
-                    plt.close(cm_fig)
-
-                # Log trade accuracy vs threshold plot
-                if logging_config.log_trade_accuracy_vs_threshold:
-                    trade_acc_fig = MetricsCalculator.plot_trade_accuracy_vs_threshold(
-                        predictions, true_labels
-                    )
-                    self.metrics_logger.log_image("trade_accuracy_vs_threshold", trade_acc_fig)
-                    plt.close(trade_acc_fig)
-
-        # Save final model
         self._save_final_model(feature_names, label_names)
 
-        # Close metrics logger
-        if self.metrics_logger is not None:
-            self.metrics_logger.close()
+        for callback in self.callbacks:
+            y_pred, y_true = self.predict(test_loader)
+            callback.on_train_end(self, (y_pred, y_true))
 
-        return {
-            "training_history": training_history,
-            "test_metrics": test_metrics,
-            "best_val_loss": best_val_loss,
-            "total_training_time": total_time,
-        }
-
-    def _save_checkpoint(self, epoch: int, val_loss: float):
-        """Save model checkpoint."""
-        logging_config = self.config.get_logging_config()
-        checkpoint_dir = Path(logging_config.checkpoint_dir)
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-        checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch+1}.pth"
-
-        save_model(
-            self.model,
-            str(checkpoint_path),
-            config=self.config.to_dict(),
-            metadata={
-                "epoch": epoch + 1,
-                "val_loss": val_loss,
-                "model_type": self.config.get_architecture_config().model_type,
-            },
-        )
+        return None
 
     def _save_final_model(self, feature_names: list[str] | None, label_names: list[str] | None):
         """Save the final trained model."""
@@ -552,11 +384,42 @@ def train_model(
         prepare_data_for_training(features, labels, data_config, feature_columns, label_columns)
     )
 
-    # Create trainer
-    trainer = ModelTrainer(config)
+    # Create callbacks
+    logging_config = config.get_logging_config()
+    training_config = config.get_training_config()
+
+    # Create history tracker
+    history_tracker = TrainingHistoryTracker()
+
+    callbacks = [
+        ConsoleLogger(),
+        history_tracker,
+        EarlyStopping(
+            patience=training_config.early_stopping_patience,
+            min_delta=0.0,
+            restore_best_weights=True,
+        ),
+        ModelCheckpoint(
+            checkpoint_dir=logging_config.checkpoint_dir,
+            save_best_only=True,
+        ),
+    ]
+
+    # Add WandB logger if enabled
+    if logging_config.wandb_enabled:
+        callbacks.append(
+            WandbMetricsLogger(
+                log_config=logging_config,
+                train_config=config.to_dict(),
+                log_frequency=logging_config.log_metrics_frequency,
+            )
+        )
+
+    # Create trainer with callbacks
+    trainer = ModelTrainer(config, callbacks=callbacks)
 
     # Train model
-    results = trainer.train(
+    trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
         test_loader=test_loader,
@@ -564,4 +427,4 @@ def train_model(
         label_names=label_names,
     )
 
-    return trainer, results
+    return trainer, history_tracker.get_history()

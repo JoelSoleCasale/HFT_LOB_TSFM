@@ -49,6 +49,7 @@ class TrainingConfig:
     loss_params: dict[str, object] = field(default_factory=dict)
     gradient_clip_norm: float | None = None
     mixed_precision: bool = False
+    use_tqdm: bool = True  # Enable/disable tqdm progress bars during training
 
 
 @dataclass
@@ -115,23 +116,16 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, config_dict: dict[str, object]) -> "ModelConfig":
         """Create configuration from dictionary."""
+        from .factories import create_architecture_config
+
         # Extract sub-configurations
         data_config = DataConfig(**config_dict.get("data", {}))
         training_config = TrainingConfig(**config_dict.get("training", {}))
         logging_config = LoggingConfig(**config_dict.get("logging", {}))
 
-        # Determine architecture type and create appropriate config
         arch_dict = config_dict.get("architecture", {})
         model_type = arch_dict.get("model_type", "lstm")
-
-        if model_type == "lstm":
-            architecture = LSTMConfig(**arch_dict)
-        elif model_type == "transformer":
-            architecture = TransformerConfig(**arch_dict)
-        elif model_type == "mlp":
-            architecture = MLPConfig(**arch_dict)
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
+        architecture = create_architecture_config(model_type, arch_dict)
 
         return cls(
             data=data_config,

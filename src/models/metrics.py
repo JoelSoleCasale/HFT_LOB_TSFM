@@ -8,21 +8,32 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import wandb
 from .utils import calculate_trade_accuracy
+from models.config import LoggingConfig
 
 
 class MetricsLogger:
     """WandB-based metrics logger."""
 
-    def __init__(self, project: str, entity: str | None = None, tags: list[str] | None = None):
-        self.project = project
-        self.entity = entity
-        self.tags = tags or []
+    def __init__(
+        self,
+        log_config: LoggingConfig,
+        train_config: dict = {},
+    ) -> None:
+        self.log_config = log_config
+        self.train_config = train_config
         self._initialized = False
 
     def _ensure_initialized(self):
         """Ensure WandB is initialized."""
         if not self._initialized:
-            wandb.init(project=self.project, entity=self.entity, tags=self.tags, reinit=True)
+            wandb.init(
+                project=self.log_config.project_name,
+                entity=self.log_config.wandb_entity,
+                tags=self.log_config.wandb_tags,
+                name=self.log_config.experiment_name,
+                config=self.train_config,
+                reinit=True,
+            )
             self._initialized = True
 
     def log_metrics(self, metrics: dict[str, float], step: int | None = None) -> None:
@@ -215,14 +226,3 @@ class MetricsCalculator:
                 metrics["roc_auc_ovr"] = 0.0
 
         return metrics
-
-
-def create_metrics_logger(logging_config) -> MetricsLogger | None:
-    """Create a metrics logger based on logging configuration."""
-    if logging_config.wandb_enabled:
-        return MetricsLogger(
-            project=logging_config.wandb_project,
-            entity=logging_config.wandb_entity,
-            tags=logging_config.wandb_tags,
-        )
-    return None
