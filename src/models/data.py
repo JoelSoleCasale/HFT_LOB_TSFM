@@ -9,6 +9,7 @@ import numpy as np
 from loguru import logger
 from sklearn.preprocessing import StandardScaler
 from .config import DataConfig
+from models.utils import get_device
 
 
 class FinancialDataset(Dataset):
@@ -28,6 +29,7 @@ class FinancialDataset(Dataset):
         label_columns: list[str] | None = None,
         scaler: StandardScaler | None = None,
         fit_scaler: bool = True,
+        device: str = "auto",
     ):
         """
         Initialize the dataset.
@@ -40,10 +42,12 @@ class FinancialDataset(Dataset):
             label_columns: List of label column names to use
             scaler: Pre-fitted scaler for features
             fit_scaler: Whether to fit the scaler on the data
+            device: Device to store tensors on ('cpu', 'cuda', or torch.device)
         """
         self.sequence_length = sequence_length
         self.feature_columns = feature_columns
         self.label_columns = label_columns
+        self.device = get_device(device)
 
         # Collect the data
         features_df = features.collect()
@@ -108,13 +112,13 @@ class FinancialDataset(Dataset):
             else:
                 self.features = self.scaler.transform(self.features)
 
-        # Convert to tensors
-        self.features = torch.FloatTensor(self.features)
+        # Convert to tensors and move to specified device
+        self.features = torch.FloatTensor(self.features).to(self.device)
         # Ensure labels are 1D LongTensor of class indices for CrossEntropyLoss
         if isinstance(self.labels, np.ndarray) and self.labels.ndim > 1:
-            self.labels = torch.LongTensor(self.labels.squeeze(-1))
+            self.labels = torch.LongTensor(self.labels.squeeze(-1)).to(self.device)
         else:
-            self.labels = torch.LongTensor(self.labels)
+            self.labels = torch.LongTensor(self.labels).to(self.device)
 
         # Calculate valid sequence indices
         self.valid_indices = self._get_valid_sequence_indices()
@@ -122,6 +126,7 @@ class FinancialDataset(Dataset):
         logger.info(f"Dataset created with {len(self.valid_indices)} valid sequences")
         logger.info(f"Features shape: {self.features.shape}")
         logger.info(f"Labels shape: {self.labels.shape}")
+        logger.info(f"Device: {self.device}")
         logger.info(f"Feature columns: {self.feature_columns}")
         logger.info(f"Label columns: {self.label_columns}")
 
@@ -236,6 +241,7 @@ def create_dataloaders(
         feature_columns=feature_columns,
         label_columns=label_columns,
         fit_scaler=True,
+        device=data_config.device,
     )
 
     # Get the scaler
@@ -260,7 +266,7 @@ def create_dataloaders(
         batch_size=data_config.batch_size,
         shuffle=data_config.shuffle,
         num_workers=data_config.num_workers,
-        pin_memory=True if torch.cuda.is_available() else False,
+        pin_memory=torch.cuda.is_available() and data_config.device == "cpu",
     )
 
     val_loader = DataLoader(
@@ -268,7 +274,7 @@ def create_dataloaders(
         batch_size=data_config.batch_size,
         shuffle=False,
         num_workers=data_config.num_workers,
-        pin_memory=True if torch.cuda.is_available() else False,
+        pin_memory=torch.cuda.is_available() and data_config.device == "cpu",
     )
 
     test_loader = DataLoader(
@@ -276,7 +282,7 @@ def create_dataloaders(
         batch_size=data_config.batch_size,
         shuffle=False,
         num_workers=data_config.num_workers,
-        pin_memory=True if torch.cuda.is_available() else False,
+        pin_memory=torch.cuda.is_available() and data_config.device == "cpu",
     )
 
     logger.info(
