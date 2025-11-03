@@ -24,3 +24,5 @@ wandb/
 
 model_checkpoint/
 logs/
+
+chronos-2-finetuned/

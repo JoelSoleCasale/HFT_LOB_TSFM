@@ -281,6 +281,8 @@ class TrainingHistoryTracker(Callback):
             "val_loss": [],
             "train_accuracy": [],
             "val_accuracy": [],
+            "train_trade_accuracy": [],
+            "val_trade_accuracy": [],
         }
 
     def on_epoch_end(
@@ -296,15 +298,19 @@ class TrainingHistoryTracker(Callback):
         val_loss: float,
     ) -> None:
         """Record training metrics to history."""
-        from models.metrics import calculate_accuracy
+        from models.metrics import calculate_accuracy, calculate_trade_accuracy
 
         train_accuracy = calculate_accuracy(train_predictions, train_targets)
         val_accuracy = calculate_accuracy(val_predictions, val_targets)
+        train_trade_acc = calculate_trade_accuracy(train_predictions, train_targets)
+        val_trade_acc = calculate_trade_accuracy(val_predictions, val_targets)
 
         self.history["train_loss"].append(train_loss)
         self.history["val_loss"].append(val_loss)
         self.history["train_accuracy"].append(train_accuracy)
         self.history["val_accuracy"].append(val_accuracy)
+        self.history["train_trade_accuracy"].append(train_trade_acc)
+        self.history["val_trade_accuracy"].append(val_trade_acc)
 
     def on_train_end(
         self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]

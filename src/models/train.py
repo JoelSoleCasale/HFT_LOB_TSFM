@@ -409,7 +409,7 @@ def train_model(
     """
     from .data import prepare_data_for_training
 
-    # Prepare data using the data configuration
+    # Prepare data using the data configuration (with temporal splits)
     data_config = config.get_data_config()
     train_loader, val_loader, test_loader, scaler, feature_names, label_names = (
         prepare_data_for_training(features, labels, data_config, feature_columns, label_columns)

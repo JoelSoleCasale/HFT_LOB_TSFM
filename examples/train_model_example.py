@@ -9,12 +9,14 @@ This script demonstrates how to:
 """
 
 from pathlib import Path
+import warnings
+from datetime import date, timedelta
 
 from features import (
     InputSpace,
     FeaturePipeline,
     FeatureExtractorRegistry,
-    SmoothedDirectionalLabel,
+    DirectionalLabel,
 )
 from models import (
     ModelConfig,
@@ -25,9 +27,10 @@ from models import (
     train_model,
 )
 from utils import date_range
-from datetime import date, timedelta
 from definitions import ROOT_DIR
 from core.orderbook import OrderBook
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
 def main():
@@ -35,7 +38,7 @@ def main():
 
     # Configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 31
+    N_DAYS = 10
 
     print("Loading orderbook data...")
 
@@ -52,7 +55,7 @@ def main():
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
-        .sample_by_time(time_delta=1_000_000_000, interpolate=True)
+        .sample_by_time(time_delta=100_000_000, interpolate=True)
     )
 
     # Ignore first second
@@ -70,7 +73,7 @@ def main():
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
     # Build label pipeline
-    directional_return_label = SmoothedDirectionalLabel(config={"window": 128, "threshold": 1e-5})
+    directional_return_label = DirectionalLabel(config={"horizon": 200, "threshold": 3e-4})
 
     print("Extracting features and labels...")
 
@@ -131,7 +134,7 @@ def main():
     config = ModelConfig(
         architecture=lstm_config,  # Use lstm_config, transformer_config, or mlp_config
         data=DataConfig(
-            sequence_length=128,
+            sequence_length=256,
             batch_size=1024,
             train_split=0.8,
             val_split=0.1,
@@ -139,8 +142,8 @@ def main():
             device="cuda",
         ),
         training=TrainingConfig(
-            learning_rate=0.001,
-            num_epochs=1,
+            learning_rate=0.005,
+            num_epochs=5,
             early_stopping_patience=5,
             optimizer="adam",  # "adam", "adamw", "sgd", "rmsprop"
             scheduler="cosine",  # "cosine", "step", "plateau", None

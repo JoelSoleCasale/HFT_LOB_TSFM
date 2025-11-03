@@ -3,7 +3,7 @@ Data handling and preprocessing for model training.
 """
 
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, Subset
 import polars as pl
 import numpy as np
 from loguru import logger
@@ -105,12 +105,22 @@ class FinancialDataset(Dataset):
         # Scale features
         if scaler is not None:
             self.scaler = scaler
-        else:
-            self.scaler = StandardScaler()
             if fit_scaler:
+                # If scaler provided AND fit_scaler=True, refit it
                 self.features = self.scaler.fit_transform(self.features)
             else:
+                # If scaler provided and fit_scaler=False, just transform
                 self.features = self.scaler.transform(self.features)
+        else:
+            # No scaler provided
+            if fit_scaler:
+                # Create and fit new scaler
+                self.scaler = StandardScaler()
+                self.features = self.scaler.fit_transform(self.features)
+            else:
+                # No scaler and no fitting - leave features as is
+                self.scaler = None
+                # Features remain unchanged
 
         # Convert to tensors and move to specified device
         self.features = torch.FloatTensor(self.features).to(self.device)
@@ -220,7 +230,13 @@ def create_dataloaders(
     random_seed: int = 42,
 ) -> tuple[DataLoader, DataLoader, DataLoader, StandardScaler]:
     """
-    Create train, validation, and test dataloaders.
+    Create train, validation, and test dataloaders with proper temporal splitting.
+
+    IMPORTANT: This function implements time series best practices:
+    - Uses sequential (temporal) splits, not random splits
+    - Fits scaler ONLY on training data
+    - Does NOT shuffle data (preserves temporal order)
+    - Train set contains earliest data, test set contains latest data
 
     Args:
         features: Polars LazyFrame containing features
@@ -228,43 +244,67 @@ def create_dataloaders(
         data_config: Data configuration
         feature_columns: List of feature column names to use
         label_columns: List of label column names to use
-        random_seed: Random seed for reproducibility
+        random_seed: Random seed for reproducibility (unused, kept for compatibility)
 
     Returns:
         Tuple of (train_loader, val_loader, test_loader, scaler)
     """
-    # Create the full dataset
+    logger.info("Creating dataset with temporal splits (no data leakage)...")
+
+    # Create the full dataset WITHOUT fitting scaler yet
+    # We need to fit scaler only on training data
     full_dataset = FinancialDataset(
         features=features,
         labels=labels,
         sequence_length=data_config.sequence_length,
         feature_columns=feature_columns,
         label_columns=label_columns,
-        fit_scaler=True,
+        scaler=None,
+        fit_scaler=False,  # Don't fit yet!
         device=data_config.device,
     )
 
-    # Get the scaler
-    scaler = full_dataset.get_scaler()
-
-    # Calculate split sizes
+    # Calculate split indices (temporal order - NO shuffling!)
     total_size = len(full_dataset)
-    train_size = int(data_config.train_split * total_size)
-    val_size = int(data_config.val_split * total_size)
-    test_size = total_size - train_size - val_size
+    train_end = int(data_config.train_split * total_size)
+    val_end = train_end + int(data_config.val_split * total_size)
 
-    # Split the dataset
-    train_dataset, val_dataset, test_dataset = random_split(
-        full_dataset,
-        [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(random_seed),
-    )
+    logger.info(f"Total sequences: {total_size:,}")
+    logger.info(f"Train indices: 0 to {train_end:,} ({data_config.train_split*100:.1f}%)")
+    logger.info(f"Val indices: {train_end:,} to {val_end:,} ({data_config.val_split*100:.1f}%)")
+    logger.info(f"Test indices: {val_end:,} to {total_size:,} ({data_config.test_split*100:.1f}%)")
 
-    # Create dataloaders
+    # Create indices for each split
+    train_indices = list(range(0, train_end))
+    val_indices = list(range(train_end, val_end))
+    test_indices = list(range(val_end, total_size))
+
+    # Fit scaler ONLY on training data (this is critical!)
+    train_features = full_dataset.features[train_indices]
+    scaler = StandardScaler()
+    scaler.fit(train_features.cpu().numpy())
+
+    logger.info("Fitted scaler on training data only")
+    logger.info(f"Feature means: {scaler.mean_[:5]}...")  # Show first 5
+    logger.info(f"Feature stds: {scaler.scale_[:5]}...")
+
+    # Apply scaler to ALL data (transform, not fit_transform)
+    full_dataset.features = torch.FloatTensor(
+        scaler.transform(full_dataset.features.cpu().numpy())
+    ).to(full_dataset.device)
+    full_dataset.scaler = scaler
+
+    # Create subsets (maintaining temporal order)
+
+    train_dataset = Subset(full_dataset, train_indices)
+    val_dataset = Subset(full_dataset, val_indices)
+    test_dataset = Subset(full_dataset, test_indices)
+
+    # Create dataloaders - NO SHUFFLING for time series!
     train_loader = DataLoader(
         train_dataset,
         batch_size=data_config.batch_size,
-        shuffle=data_config.shuffle,
+        shuffle=False,  # Critical: no shuffling for time series
         num_workers=data_config.num_workers,
         pin_memory=torch.cuda.is_available() and data_config.device == "cpu",
     )
@@ -286,7 +326,8 @@ def create_dataloaders(
     )
 
     logger.info(
-        f"Data splits - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}"
+        f"Created temporal dataloaders - Train: {len(train_dataset)}, "
+        f"Val: {len(val_dataset)}, Test: {len(test_dataset)}"
     )
 
     return train_loader, val_loader, test_loader, scaler
