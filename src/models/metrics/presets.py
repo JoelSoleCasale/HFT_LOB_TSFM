@@ -7,6 +7,7 @@ from .calculators import (
     AccuracyCalculator,
     PrecisionRecallF1Calculator,
     TradeAccuracyCalculator,
+    StrictTradeAccuracyCalculator,
     PerClassMetricsCalculator,
     ROCAUCCalculator,
 )
@@ -83,8 +84,9 @@ def create_trading_suite(
         num_classes=num_classes, class_names=class_names, include_per_class=include_per_class
     )
 
-    # Add trading-specific metrics
+    # Add trading-specific metrics (both normal and strict)
     suite.add_calculator(TradeAccuracyCalculator(trade_threshold))
+    suite.add_calculator(StrictTradeAccuracyCalculator(trade_threshold))
     suite.add_plotter(TradeAccuracyVsThresholdPlotter())
 
     return suite

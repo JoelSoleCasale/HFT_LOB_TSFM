@@ -60,7 +60,7 @@ class PrecisionRecallF1Calculator(MetricCalculator):
 
 
 class TradeAccuracyCalculator(MetricCalculator):
-    """Calculate trade accuracy for financial predictions."""
+    """Calculate trade accuracy for financial predictions (normal mode)."""
 
     def __init__(self, threshold: float = 0.5):
         super().__init__("trade_accuracy")
@@ -75,7 +75,31 @@ class TradeAccuracyCalculator(MetricCalculator):
     ) -> MetricResult:
         from .utils import calculate_trade_accuracy
 
-        accuracy = calculate_trade_accuracy(predictions, targets, self.threshold)
+        accuracy = calculate_trade_accuracy(predictions, targets, self.threshold, strict=False)
+        return MetricResult(name=self.name, value=accuracy, metadata={"threshold": self.threshold})
+
+
+class StrictTradeAccuracyCalculator(MetricCalculator):
+    """Calculate strict trade accuracy for financial predictions.
+
+    Only considers samples where the model predicts a trade (non-neutral prediction),
+    measuring accuracy on the model's actual trade signals.
+    """
+
+    def __init__(self, threshold: float = 0.5):
+        super().__init__("strict_trade_accuracy")
+        self.threshold = threshold
+
+    @property
+    def requires_probabilities(self) -> bool:
+        return True
+
+    def calculate(
+        self, predictions: torch.Tensor, targets: torch.Tensor, **kwargs
+    ) -> MetricResult:
+        from .utils import calculate_trade_accuracy
+
+        accuracy = calculate_trade_accuracy(predictions, targets, self.threshold, strict=True)
         return MetricResult(name=self.name, value=accuracy, metadata={"threshold": self.threshold})
 
 

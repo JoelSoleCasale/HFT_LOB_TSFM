@@ -28,18 +28,26 @@ def calculate_accuracy(predictions: torch.Tensor, targets: torch.Tensor) -> floa
 
 
 def calculate_trade_accuracy(
-    predictions: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5
+    predictions: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5, strict: bool = False
 ) -> float:
     """
     Compute trade accuracy, considering only non-neutral classes with confidence above threshold.
+
+    Normal mode: Filters samples where BOTH ground truth AND prediction are non-neutral (0 or 2).
+                 This measures accuracy on trades where we know we should act.
+
+    Strict mode: Filters samples where the PREDICTION is non-neutral (0 or 2), regardless of ground truth.
+                 This measures accuracy on trades where the model actually recommends acting.
 
     Args:
         predictions: Model predictions (logits or probabilities)
         targets: Ground truth labels
         threshold: Minimum confidence threshold for predictions
+        strict: If True, only consider predicted non-neutral classes (model's trade signals);
+                if False, consider samples where both ground truth and prediction are non-neutral
 
     Returns:
-        Trade accuracy as a float between 0 and 1
+        Trade accuracy as a float between 0 and 1, or NaN if no valid samples
     """
     if predictions.dim() > 1:
         # Get probabilities and predicted classes
@@ -53,7 +61,14 @@ def calculate_trade_accuracy(
     confidence_mask = max_probs >= threshold
 
     # Create mask for non-neutral classes (assuming classes are -1, 0, 1 encoded as 0, 1, 2)
-    trade_mask = ((targets == 0) | (targets == 2)) & ((pred_classes == 0) | (pred_classes == 2))
+    if strict:
+        # Strict: Only where model predicts a trade (non-neutral prediction)
+        trade_mask = (pred_classes == 0) | (pred_classes == 2)
+    else:
+        # Normal: Only where both ground truth AND prediction are non-neutral
+        trade_mask = ((targets == 0) | (targets == 2)) & (
+            (pred_classes == 0) | (pred_classes == 2)
+        )
 
     # Combine both masks
     combined_mask = trade_mask & confidence_mask

@@ -42,7 +42,7 @@ class ConfusionMatrixPlotter(MetricPlotter):
 
 
 class TradeAccuracyVsThresholdPlotter(MetricPlotter):
-    """Plot trade accuracy across confidence thresholds."""
+    """Plot trade accuracy across confidence thresholds (both normal and strict modes)."""
 
     def __init__(self, num_points: int = 50, figsize: tuple = (10, 6)):
         super().__init__("trade_accuracy_vs_threshold")
@@ -57,42 +57,148 @@ class TradeAccuracyVsThresholdPlotter(MetricPlotter):
         from .utils import calculate_trade_accuracy
 
         thresholds = np.linspace(0, 1, self.num_points)
-        accuracies = []
+        normal_accuracies = []
+        strict_accuracies = []
+        num_trades = []
         valid_thresholds = []
 
         for threshold in thresholds:
-            acc = calculate_trade_accuracy(predictions, targets, float(threshold))
-            if not np.isnan(acc):
-                accuracies.append(acc)
+            normal_acc = calculate_trade_accuracy(
+                predictions, targets, float(threshold), strict=False
+            )
+            strict_acc = calculate_trade_accuracy(
+                predictions, targets, float(threshold), strict=True
+            )
+
+            # Calculate number of trades (predictions with class 0 or 2 and confidence >= threshold)
+            if predictions.dim() > 1:
+                probabilities = torch.softmax(predictions, dim=1)
+                max_probs, pred_classes = torch.max(probabilities, dim=1)
+            else:
+                pred_classes = predictions
+                max_probs = torch.ones_like(predictions)
+
+            confidence_mask = max_probs >= threshold
+            trade_mask = (pred_classes == 0) | (pred_classes == 2)
+            n_trades = (trade_mask & confidence_mask).sum().item()
+
+            # Only include threshold if at least one metric is valid
+            if not np.isnan(normal_acc) or not np.isnan(strict_acc):
+                normal_accuracies.append(normal_acc if not np.isnan(normal_acc) else None)
+                strict_accuracies.append(strict_acc if not np.isnan(strict_acc) else None)
+                num_trades.append(n_trades)
                 valid_thresholds.append(threshold)
 
-        fig, ax = plt.subplots(figsize=self.figsize)
-        ax.plot(valid_thresholds, accuracies, linewidth=2, marker="o", markersize=4)
-        ax.set_xlabel("Confidence Threshold", fontsize=12)
-        ax.set_ylabel("Trade Accuracy", fontsize=12)
-        ax.set_title("Trade Accuracy vs Confidence Threshold", fontsize=14, fontweight="bold")
-        ax.grid(True, alpha=0.3)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
+        fig, ax1 = plt.subplots(figsize=self.figsize)
 
-        if accuracies:
-            max_acc = max(accuracies)
-            max_threshold = valid_thresholds[accuracies.index(max_acc)]
-            ax.axhline(
-                y=max_acc,
-                color="r",
-                linestyle="--",
-                alpha=0.5,
-                label=f"Max: {max_acc:.4f}",
+        # Plot normal trade accuracy
+        normal_valid = [
+            (t, a) for t, a in zip(valid_thresholds, normal_accuracies) if a is not None
+        ]
+        if normal_valid:
+            normal_t, normal_a = zip(*normal_valid)
+            ax1.plot(
+                normal_t,
+                normal_a,
+                linewidth=2,
+                marker="o",
+                markersize=4,
+                label="Trade Accuracy (Normal)",
+                color="blue",
             )
-            ax.axvline(
-                x=max_threshold,
-                color="g",
-                linestyle="--",
-                alpha=0.5,
-                label=f"Optimal: {max_threshold:.3f}",
+
+        # Plot strict trade accuracy
+        strict_valid = [
+            (t, a) for t, a in zip(valid_thresholds, strict_accuracies) if a is not None
+        ]
+        if strict_valid:
+            strict_t, strict_a = zip(*strict_valid)
+            ax1.plot(
+                strict_t,
+                strict_a,
+                linewidth=2,
+                marker="s",
+                markersize=4,
+                label="Trade Accuracy (Strict)",
+                color="orange",
             )
-            ax.legend()
+
+        ax1.set_xlabel("Confidence Threshold", fontsize=12)
+        ax1.set_ylabel("Trade Accuracy", fontsize=12, color="black")
+        ax1.set_title("Trade Accuracy vs Confidence Threshold", fontsize=14, fontweight="bold")
+        ax1.grid(True, alpha=0.3)
+        ax1.set_xlim(0, 1)
+        ax1.set_ylim(0, 1)
+        ax1.tick_params(axis="y", labelcolor="black")
+
+        # Create secondary y-axis for number of trades
+        ax2 = ax1.twinx()
+        ax2.plot(
+            valid_thresholds,
+            num_trades,
+            linewidth=2,
+            marker="^",
+            markersize=4,
+            label="Number of Trades",
+            color="green",
+            linestyle="--",
+        )
+        ax2.set_ylabel("Number of Trades (log scale)", fontsize=12, color="green")
+        ax2.tick_params(axis="y", labelcolor="green")
+        ax2.set_yscale("log")
+
+        # Set y-axis limits for number of trades
+        if num_trades:
+            max_trades = max(num_trades)
+            min_trades = min([t for t in num_trades if t > 0], default=1)
+            if max_trades > 0:
+                ax2.set_ylim(max(0.5, min_trades * 0.5), max_trades * 2)
+
+        # Add markers for maximum values
+        if normal_valid:
+            max_normal_acc = max(a for a in normal_accuracies if a is not None)
+            max_normal_threshold = valid_thresholds[
+                [a for a in normal_accuracies].index(max_normal_acc)
+            ]
+            ax1.axhline(
+                y=max_normal_acc,
+                color="blue",
+                linestyle="--",
+                alpha=0.3,
+                linewidth=1,
+            )
+            ax1.axvline(
+                x=max_normal_threshold,
+                color="blue",
+                linestyle="--",
+                alpha=0.3,
+                linewidth=1,
+            )
+
+        if strict_valid:
+            max_strict_acc = max(a for a in strict_accuracies if a is not None)
+            max_strict_threshold = valid_thresholds[
+                [a for a in strict_accuracies].index(max_strict_acc)
+            ]
+            ax1.axhline(
+                y=max_strict_acc,
+                color="orange",
+                linestyle="--",
+                alpha=0.3,
+                linewidth=1,
+            )
+            ax1.axvline(
+                x=max_strict_threshold,
+                color="orange",
+                linestyle="--",
+                alpha=0.3,
+                linewidth=1,
+            )
+
+        # Combine legends from both axes
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc="best")
 
         plt.tight_layout()
         return fig
