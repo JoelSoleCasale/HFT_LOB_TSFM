@@ -26,6 +26,7 @@ from .extractors.orderbook_features import (
 from .extractors.trade_features import TradeFlowFeatures
 from .labels.price_labels import MidPriceReturnLabel
 from .labels.directional_labels import DirectionalLabel, SmoothedDirectionalLabel
+from .labels.barrier_labels import TripleBarrierLabel
 
 __all__ = [
     # Base
@@ -46,4 +47,5 @@ __all__ = [
     "MidPriceReturnLabel",
     "DirectionalLabel",
     "SmoothedDirectionalLabel",
+    "TripleBarrierLabel",
 ]
