@@ -46,10 +46,12 @@ package = true
 [tool.poe.tasks]
 hooks = { shell = "uvx pre-commit install --overwrite --install-hooks --hook-type pre-commit --hook-type post-checkout --hook-type pre-push && git checkout" }
 install-test = "uv sync --extra test"
-test = "uv run --extra test pytest tests/ -v"
+test = "uv run --extra test pytest tests/ -v -m 'not slow'"
+test-full = "uv run --extra test pytest tests/ -v"
 test-unit = "uv run --extra test pytest tests/unit/ -v -m unit"
-test-integration = "uv run --extra test pytest tests/integration/ -v -m integration"
-test-cov = "uv run --extra test pytest tests/ --cov=src --cov-report=html --cov-report=term-missing"
+test-integration = "uv run --extra test pytest tests/integration/ -v -m 'integration and not slow'"
+test-integration-full = "uv run --extra test pytest tests/integration/ -v -m integration"
+test-cov = "uv run --extra test pytest tests/ --cov=src --cov-report=html --cov-report=term-missing -m 'not slow'"
 
 [tool.poe.tasks.clean-test]
 shell = """

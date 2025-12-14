@@ -547,6 +547,7 @@ class TestDataManagerIntegrationWithRealData:
         # They should have some differences (not identical)
         assert received_timestamps != event_timestamps
 
+    @pytest.mark.slow
     def test_hftbacktest_sampled_data_matches_incremental_sampler_real_data(self, temp_data_cache):
         """Test that hftbacktest sampled data matches IncrementalOrderBookSampler with real data."""
         cache_root, sample_date = temp_data_cache
@@ -955,6 +956,7 @@ class TestHftbacktestSampledDataSyntheticData:
 
             yield cache_root, test_date
 
+    @pytest.mark.slow
     def test_hftbacktest_sampled_data_matches_incremental_sampler_synthetic_data(
         self, temp_synthetic_cache_for_hft
     ):
