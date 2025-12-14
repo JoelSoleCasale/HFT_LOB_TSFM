@@ -49,6 +49,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 - k: Number of patches for statistics (default: 8)
                 - use_differencing: Whether to augment with differenced embeddings (default: False)
                 - device: Device to use ("cuda" or "cpu", default: "cuda")
+                - batch_size: Number of samples to process in parallel (default: 32)
                 - disable_tqdm: Whether to disable progress bars (default: False)
         """
         super().__init__(config)
@@ -64,6 +65,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         self.k: int = self.config.get("k", 8)
         self.use_differencing: bool = self.config.get("use_differencing", False)
         self.device: str = self.config.get("device", "cuda")
+        self.batch_size: int = self.config.get("batch_size", 32)
         self.disable_tqdm: bool = self.config.get("disable_tqdm", False)
 
         # Validate configuration
@@ -102,6 +104,9 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
         if self.k < 1:
             raise ValueError(f"k must be at least 1, got {self.k}")
+
+        if self.batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {self.batch_size}")
 
         if self.device not in ["cuda", "cpu"]:
             raise ValueError(f"Invalid device: {self.device}. Must be 'cuda' or 'cpu'")
@@ -185,46 +190,61 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
             return embeddings
 
-    def _process_embedding(self, data: np.ndarray) -> torch.Tensor:
+    def _process_embedding_batch(self, data_batch: np.ndarray) -> torch.Tensor:
         """
-        Generate and process embedding from data.
+        Generate and process embeddings from a batch of data.
+
+        Args:
+            data_batch: Input array of shape (batch_size, seq_len, n_features)
+
+        Returns:
+            Processed embedding tensor of shape (batch_size, embedding_dim)
+        """
+        batch_size = data_batch.shape[0]
+
+        # Convert to tensor with shape (batch_size, n_features, seq_len)
+        # Note: data_batch is (batch_size, seq_len, n_features)
+        context = torch.tensor(
+            np.transpose(data_batch, (0, 2, 1)), dtype=torch.float32
+        )  # (batch_size, n_features, seq_len)
+
+        # Get embeddings: (batch_size, n_features, new_seq_len, embedding_size)
+        embeddings = self._embed_with_chronos(context)
+
+        # Aggregate across sequence dimension using torch operations
+        # Shape: (batch_size, n_features, new_seq_len, embedding_size)
+        if self.seq_aggregation == "last":
+            emb: torch.Tensor = embeddings[:, :, -1, :]  # (batch_size, n_features, embedding_size)
+        elif self.seq_aggregation == "mean":
+            emb = embeddings.mean(dim=2)  # (batch_size, n_features, embedding_size)
+        else:
+            raise ValueError(f"Invalid sequential aggregation: {self.seq_aggregation}")
+
+        # Aggregate across feature dimension
+        if self.feat_aggregation == "concat":
+            # Flatten feature and embedding dimensions for each batch element
+            emb = emb.reshape(batch_size, -1)  # (batch_size, n_features * embedding_size)
+        elif self.feat_aggregation == "mean":
+            emb = emb.mean(dim=1)  # (batch_size, embedding_size)
+        else:
+            raise ValueError(f"Invalid feature aggregation: {self.feat_aggregation}")
+
+        return emb.float()
+
+    def _process_embedding_single(self, data: np.ndarray) -> torch.Tensor:
+        """
+        Generate and process embedding from a single data sample.
 
         Args:
             data: Input array of shape (seq_len, n_features)
 
         Returns:
-            Processed embedding tensor
+            Processed embedding tensor of shape (embedding_dim,)
         """
-        # Convert to tensor with shape (1, n_features, seq_len)
-        # Note: data is (seq_len, n_features), we need (batch_size, n_features, seq_len)
-        context = torch.tensor(data.T, dtype=torch.float32).unsqueeze(
-            0
-        )  # (1, n_features, seq_len)
-
-        # Get embeddings: (1, n_features, new_seq_len, embedding_size)
-        embeddings = self._embed_with_chronos(context)
-
-        # Aggregate across sequence dimension using torch operations
-        # Shape: (1, n_features, new_seq_len, embedding_size)
-        if self.seq_aggregation == "last":
-            emb: torch.Tensor = embeddings[:, :, -1, :]  # (1, n_features, embedding_size)
-        elif self.seq_aggregation == "mean":
-            emb = embeddings.mean(dim=2)  # (1, n_features, embedding_size)
-        else:
-            raise ValueError(f"Invalid sequential aggregation: {self.seq_aggregation}")
-
-        # Remove batch dimension: (n_features, embedding_size)
-        emb = emb.squeeze(0)
-
-        # Aggregate across feature dimension
-        if self.feat_aggregation == "concat":
-            emb = emb.reshape(-1)  # (n_features * embedding_size,)
-        elif self.feat_aggregation == "mean":
-            emb = emb.mean(dim=0)  # (embedding_size,)
-        else:
-            raise ValueError(f"Invalid feature aggregation: {self.feat_aggregation}")
-
-        return emb.float()
+        # Add batch dimension and process
+        data_batch = np.expand_dims(data, axis=0)  # (1, seq_len, n_features)
+        emb_batch = self._process_embedding_batch(data_batch)  # (1, embedding_dim)
+        return emb_batch.squeeze(0)  # (embedding_dim,)
 
     def generate_embedding(
         self, features: np.ndarray, context_length: int | None = None
@@ -247,12 +267,12 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
             features = features[-context_length:]
 
         # Generate embedding from original time series
-        embedding = self._process_embedding(features).cpu().numpy()
+        embedding = self._process_embedding_single(features).cpu().numpy()
 
         # Augment with differenced embedding if enabled
         if self.use_differencing and len(features) > 1:
             differenced_data = compute_differenced_sequence(features, order=1)
-            differenced_embedding = self._process_embedding(differenced_data).cpu().numpy()
+            differenced_embedding = self._process_embedding_single(differenced_data).cpu().numpy()
             embedding = np.concatenate([embedding, differenced_embedding])
 
         # Augment with patch statistics if enabled
@@ -307,25 +327,74 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 f"but only have {len(feature_data)}"
             )
 
-        # Generate embeddings using sliding window of context_length
-        embeddings_list = []
+        # Prepare all context windows
+        all_contexts = []
         valid_indices = []
 
-        for i in tqdm(
-            range(start_index, len(feature_data)),
+        for i in range(start_index, len(feature_data)):
+            context_data = feature_data[i - context_length + 1 : i + 1]
+            all_contexts.append(context_data)
+            valid_indices.append(i)
+
+        # Process in batches for efficiency
+        embeddings_list = []
+
+        for batch_start in tqdm(
+            range(0, len(all_contexts), self.batch_size),
             desc="Generating embeddings",
             leave=False,
             disable=self.disable_tqdm,
+            total=len(all_contexts),
+            unit="sample",
+            unit_scale=self.batch_size,
         ):
+            batch_end = min(batch_start + self.batch_size, len(all_contexts))
+            batch_contexts = all_contexts[batch_start:batch_end]
+
+            # Stack contexts into a batch: (batch_size, seq_len, n_features)
+            batch_array = np.stack(batch_contexts, axis=0)
+
             try:
-                # Use only the last context_length samples (sliding window)
-                context_data = feature_data[i - context_length + 1 : i + 1]
-                embedding = self.generate_embedding(context_data, context_length=context_length)
-                embeddings_list.append(embedding)
-                valid_indices.append(i)
+                # Process batch of original time series
+                batch_embeddings = self._process_embedding_batch(batch_array).cpu().numpy()
+
+                # Handle differencing if enabled
+                if self.use_differencing and context_length > 1:
+                    # Compute differenced sequences for the batch
+                    differenced_batch = np.array(
+                        [compute_differenced_sequence(ctx, order=1) for ctx in batch_contexts]
+                    )
+                    diff_embeddings = (
+                        self._process_embedding_batch(differenced_batch).cpu().numpy()
+                    )
+                    batch_embeddings = np.concatenate([batch_embeddings, diff_embeddings], axis=1)
+
+                # Handle statistics augmentation if enabled
+                if self.augment_with_statistics and context_length >= self.k:
+                    # Compute patch statistics for each sample in the batch
+                    stats_batch = np.array(
+                        [
+                            compute_patch_statistics(ctx, self.k, normalize=True)
+                            for ctx in batch_contexts
+                        ]
+                    )
+                    batch_embeddings = np.concatenate([batch_embeddings, stats_batch], axis=1)
+
+                # Add batch embeddings to the list
+                embeddings_list.extend(batch_embeddings)
+
             except Exception as e:
-                logger.warning(f"Failed to generate embedding at index {i}: {e}")
-                continue
+                logger.warning(
+                    f"Failed to generate embeddings for batch starting at {batch_start}: {e}"
+                )
+                # Fall back to processing individually for this batch
+                for ctx in batch_contexts:
+                    try:
+                        embedding = self.generate_embedding(ctx, context_length=context_length)
+                        embeddings_list.append(embedding)
+                    except Exception as e2:
+                        logger.warning(f"Failed to generate individual embedding: {e2}")
+                        continue
 
         if len(embeddings_list) == 0:
             raise ValueError("No embeddings were successfully generated")
