@@ -17,7 +17,6 @@ Usage:
 
 from pathlib import Path
 from datetime import date, timedelta
-import warnings
 import argparse
 
 from features import (
@@ -38,8 +37,6 @@ from models import (
 from utils import date_range
 from definitions import ROOT_DIR
 from core.orderbook import OrderBook
-
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
 def load_data(first_date: date, n_days: int, sample_interval: int = 100_000_000):
@@ -152,10 +149,10 @@ def create_experiment_configs(
         train_split=0.8,
         val_split=0.1,
         test_split=0.1,
-        device="cuda",
+        device="cpu",
     )
     train_config = TrainingConfig(
-        learning_rate=0.005,
+        learning_rate=0.002,
         num_epochs=50,
         early_stopping_patience=5,
         optimizer="adam",
@@ -169,7 +166,7 @@ def create_experiment_configs(
     def get_logging_config(name: str) -> LoggingConfig:
         return LoggingConfig(
             project_name="financial-models",
-            experiment_name=f"{name}_alpha=5e-4",
+            experiment_name=f"{name}",
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
@@ -211,7 +208,25 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 3: Transformer
+    # Experiment 3: Smaller LSTM
+    experiments.append(
+        ModelConfig(
+            architecture=LSTMConfig(
+                input_size=input_size,
+                hidden_size=64,
+                num_layers=1,
+                output_size=3,
+                dropout=0.1,
+                bidirectional=True,
+                attention=False,
+            ),
+            data=data_config,
+            training=train_config,
+            logging=get_logging_config("lstm_small_seq256"),
+        )
+    )
+
+    # Experiment 4: Transformer
     experiments.append(
         ModelConfig(
             architecture=TransformerConfig(
@@ -246,7 +261,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 4: LSTM with longer sequence
+    # Experiment 5: LSTM with longer sequence
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -271,7 +286,7 @@ def create_experiment_configs(
         )
     )
 
-    # # Experiment 5: Deep LSTM
+    # Experiment 6: Deep LSTM
     # experiments.append(
     #     ModelConfig(
     #         architecture=LSTMConfig(
@@ -286,21 +301,6 @@ def create_experiment_configs(
     #         data=data_config,
     #         training=train_config,
     #         logging=get_logging_config("lstm_deep4_attention_seq256"),
-    #     )
-    # )
-
-    # # Experiment 6: MLP
-    # experiments.append(
-    #     ModelConfig(
-    #         architecture=MLPConfig(
-    #             input_size=input_size * data_config.sequence_length,  # Flattened input
-    #             output_size=3,
-    #             hidden_sizes=[256, 128, 64],
-    #             dropout=0.2,
-    #         ),
-    #         data=data_config,
-    #         training=train_config,
-    #         logging=get_logging_config("mlp_seq1"),
     #     )
     # )
 
@@ -485,8 +485,8 @@ Examples:
     args = parser.parse_args()
 
     # Data loading configuration
-    FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 1
+    FIRST_DATE = date(2025, 7, 5)
+    N_DAYS = 5
     SAMPLE_INTERVAL = 100_000_000  # nanoseconds
 
     # Load data once (shared across all experiments)
