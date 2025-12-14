@@ -91,7 +91,7 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["t5", "bolt"],
+        choices=["t5", "bolt", "chronos2"],
         help="Model type for Chronos embeddings",
     )
     parser.add_argument(

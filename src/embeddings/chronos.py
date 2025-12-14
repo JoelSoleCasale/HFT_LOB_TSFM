@@ -15,7 +15,7 @@ from embeddings.utils import (
     extract_feature_columns,
 )
 
-from chronos import ChronosPipeline, BaseChronosPipeline
+from chronos import ChronosPipeline, BaseChronosPipeline, Chronos2Pipeline
 
 
 # Cache for Chronos pipelines by model size
@@ -27,7 +27,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
     """
     Embedding generator using Chronos time series foundation models.
 
-    Supports both T5 and Bolt model types, various aggregation methods,
+    Supports T5, Bolt, and Chronos 2 model types, various aggregation methods,
     and augmentation with statistics and differencing.
     """
 
@@ -40,8 +40,9 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
         Args:
             config: Configuration dictionary with the following keys:
-                - model_type: Type of Chronos model ("t5" or "bolt", default: "t5")
+                - model_type: Type of Chronos model ("t5", "bolt", or "chronos2", default: "t5")
                 - model_size: Size of the model ("mini", "small", "base", "large", default: "mini")
+                  Note: For chronos2, only base size is available (model_size is ignored)
                 - seq_aggregation: How to aggregate across sequence ("last" or "mean", default: "last")
                 - feat_aggregation: How to aggregate across features ("concat" or "mean", default: "concat")
                 - augment_with_statistics: Whether to augment with patch statistics (default: False)
@@ -73,10 +74,17 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
     def validate_config(self) -> bool:
         """Validate configuration parameters."""
-        if self.model_type not in ["t5", "bolt"]:
-            raise ValueError(f"Invalid model_type: {self.model_type}. Must be 't5' or 'bolt'")
+        if self.model_type not in ["t5", "bolt", "chronos2"]:
+            raise ValueError(
+                f"Invalid model_type: {self.model_type}. Must be 't5', 'bolt', or 'chronos2'"
+            )
 
-        if self.model_size not in ["mini", "small", "base", "large"]:
+        if self.model_type != "chronos2" and self.model_size not in [
+            "mini",
+            "small",
+            "base",
+            "large",
+        ]:
             raise ValueError(
                 f"Invalid model_size: {self.model_size}. "
                 "Must be 'mini', 'small', 'base', or 'large'"
@@ -106,16 +114,25 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         if self._pipeline is None:
             cache_key = f"{self.model_type}_{self.model_size}_{self.device}"
             if cache_key not in _PIPELINE_CACHE:
-                logger.info(
-                    f"Loading Chronos {self.model_type}-{self.model_size} on {self.device}"
-                )
-                if self.model_type == "bolt":
+                if self.model_type == "chronos2":
+                    logger.info(f"Loading Chronos 2 on {self.device}")
+                    _PIPELINE_CACHE[cache_key] = Chronos2Pipeline.from_pretrained(
+                        "amazon/chronos-2",
+                        device_map=self.device,
+                    )
+                elif self.model_type == "bolt":
+                    logger.info(
+                        f"Loading Chronos {self.model_type}-{self.model_size} on {self.device}"
+                    )
                     _PIPELINE_CACHE[cache_key] = BaseChronosPipeline.from_pretrained(
                         f"amazon/chronos-bolt-{self.model_size}",
                         device_map=self.device,
                         dtype=torch.bfloat16,
                     )
                 else:  # t5
+                    logger.info(
+                        f"Loading Chronos {self.model_type}-{self.model_size} on {self.device}"
+                    )
                     _PIPELINE_CACHE[cache_key] = ChronosPipeline.from_pretrained(
                         f"amazon/chronos-t5-{self.model_size}",
                         device_map=self.device,
@@ -123,6 +140,50 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                     )
             self._pipeline = _PIPELINE_CACHE[cache_key]
         return self._pipeline
+
+    def _embed_with_chronos(self, context: torch.Tensor) -> torch.Tensor:
+        """
+        Wrapper to call pipeline.embed() with consistent output format.
+
+        For Chronos 1 (T5/Bolt): Flattens batch dimension to treat each feature independently,
+        then reshapes output to match Chronos 2 format.
+
+        For Chronos 2: Passes input directly.
+
+        Args:
+            context: Input tensor of shape (batch_size, n_features, seq_len)
+
+        Returns:
+            Embeddings tensor of shape (batch_size, n_features, new_seq_len, embedding_size)
+        """
+        if self.model_type == "chronos2":
+            # Chronos 2: Input shape (batch_size, n_features, seq_len)
+            # Output is a list of tensors, convert to single tensor
+            # Output shape: (batch_size, n_features, new_seq_len, embedding_size)
+            embeddings_list, _ = self.pipeline.embed(context)
+            embeddings = (
+                torch.stack(embeddings_list)
+                if isinstance(embeddings_list, list)
+                else embeddings_list
+            )
+            return embeddings
+        else:
+            # Chronos 1 (T5/Bolt): Each feature is treated as an independent batch element
+            batch_size, n_features, seq_len = context.shape
+
+            # Flatten to (batch_size * n_features, seq_len)
+            context_flat = context.reshape(batch_size * n_features, seq_len)
+
+            # Get embeddings: (batch_size * n_features, new_seq_len, embedding_size)
+            embeddings_flat, _ = self.pipeline.embed(context_flat)
+
+            # Reshape to match Chronos 2 format: (batch_size, n_features, new_seq_len, embedding_size)
+            _, new_seq_len, embedding_size = embeddings_flat.shape
+            embeddings = embeddings_flat.reshape(
+                batch_size, n_features, new_seq_len, embedding_size
+            )
+
+            return embeddings
 
     def _process_embedding(self, data: np.ndarray) -> torch.Tensor:
         """
@@ -134,24 +195,32 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         Returns:
             Processed embedding tensor
         """
-        # Chronos expects (n_features, seq_len) format
-        context = torch.tensor(data.T, dtype=torch.float32)
-        embeddings, _ = self.pipeline.embed(context)  # B x seq x E
+        # Convert to tensor with shape (1, n_features, seq_len)
+        # Note: data is (seq_len, n_features), we need (batch_size, n_features, seq_len)
+        context = torch.tensor(data.T, dtype=torch.float32).unsqueeze(
+            0
+        )  # (1, n_features, seq_len)
+
+        # Get embeddings: (1, n_features, new_seq_len, embedding_size)
+        embeddings = self._embed_with_chronos(context)
 
         # Aggregate across sequence dimension using torch operations
-        # (Note: We use torch here for efficiency, but the logic mirrors aggregate_sequence)
+        # Shape: (1, n_features, new_seq_len, embedding_size)
         if self.seq_aggregation == "last":
-            emb: torch.Tensor = embeddings[:, -1, :]  # B x E
+            emb: torch.Tensor = embeddings[:, :, -1, :]  # (1, n_features, embedding_size)
         elif self.seq_aggregation == "mean":
-            emb = embeddings.mean(dim=1)  # B x E
+            emb = embeddings.mean(dim=2)  # (1, n_features, embedding_size)
         else:
             raise ValueError(f"Invalid sequential aggregation: {self.seq_aggregation}")
 
+        # Remove batch dimension: (n_features, embedding_size)
+        emb = emb.squeeze(0)
+
         # Aggregate across feature dimension
         if self.feat_aggregation == "concat":
-            emb = emb.reshape(-1)  # B*E
+            emb = emb.reshape(-1)  # (n_features * embedding_size,)
         elif self.feat_aggregation == "mean":
-            emb = emb.mean(dim=0)  # E
+            emb = emb.mean(dim=0)  # (embedding_size,)
         else:
             raise ValueError(f"Invalid feature aggregation: {self.feat_aggregation}")
 
