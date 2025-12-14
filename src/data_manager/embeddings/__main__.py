@@ -204,6 +204,11 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         help="Overwrite existing embedding files",
     )
+    parser.add_argument(
+        "--no-tqdm",
+        action="store_true",
+        help="Disable progress bars when generating embeddings",
+    )
 
     args = parser.parse_args()
     return args, default_cfg
@@ -267,6 +272,10 @@ def main() -> None:
     # Build embedding configuration
     embedding_config = build_embedding_config(args, default_cfg)
 
+    # Add disable_tqdm to embedding config if chronos
+    if args.embedding_type == "chronos":
+        embedding_config["disable_tqdm"] = args.no_tqdm
+
     logger.debug("Configuration:")
     logger.debug(f"  Embedding type: {args.embedding_type}")
     logger.debug(f"  Context length: {args.context_length}")
@@ -279,6 +288,7 @@ def main() -> None:
     logger.debug(f"  Exchanges: {args.exchange}")
     logger.debug(f"  Orderbook subfolder: {args.orderbook_subfolder}")
     logger.debug(f"  Output subfolder: {args.output_subfolder}")
+    logger.debug(f"  Disable tqdm: {args.no_tqdm}")
 
     # Initialize processor
     processor = EmbeddingProcessor(

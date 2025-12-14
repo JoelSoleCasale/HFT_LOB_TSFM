@@ -5,6 +5,7 @@ import numpy as np
 import polars as pl
 import torch
 from loguru import logger
+from tqdm import tqdm
 
 from embeddings.base import BaseEmbeddingGenerator
 from embeddings.registry import EmbeddingGeneratorRegistry
@@ -47,6 +48,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 - k: Number of patches for statistics (default: 8)
                 - use_differencing: Whether to augment with differenced embeddings (default: False)
                 - device: Device to use ("cuda" or "cpu", default: "cuda")
+                - disable_tqdm: Whether to disable progress bars (default: False)
         """
         super().__init__(config)
 
@@ -61,6 +63,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         self.k: int = self.config.get("k", 8)
         self.use_differencing: bool = self.config.get("use_differencing", False)
         self.device: str = self.config.get("device", "cuda")
+        self.disable_tqdm: bool = self.config.get("disable_tqdm", False)
 
         # Validate configuration
         self.validate_config()
@@ -239,12 +242,11 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         embeddings_list = []
         valid_indices = []
 
-        from tqdm import tqdm
-
         for i in tqdm(
             range(start_index, len(feature_data)),
             desc="Generating embeddings",
             leave=False,
+            disable=self.disable_tqdm,
         ):
             try:
                 # Use only the last context_length samples (sliding window)

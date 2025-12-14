@@ -9,7 +9,6 @@ saved separately as a parquet file for efficient storage and later retrieval.
 from pathlib import Path
 import polars as pl
 from loguru import logger
-from tqdm import tqdm
 
 from embeddings import EmbeddingPipeline, EmbeddingGeneratorRegistry
 from core.orderbook import OrderBook
@@ -320,9 +319,7 @@ class EmbeddingProcessor:
         processed = []
 
         # Process each hour
-        for hour, hour_start_ns, hour_end_ns in tqdm(
-            hour_boundaries, desc=f"Processing {date_str}", unit="hour"
-        ):
+        for hour, hour_start_ns, hour_end_ns in hour_boundaries:
             output_path = self._get_output_path(symbol, exchange, date_str, hour)
 
             # Skip if exists and skip_existing is True
