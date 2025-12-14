@@ -1,7 +1,7 @@
 import polars as pl
 import numpy as np
 from pathlib import Path
-from typing import Iterator, Callable
+from typing import Iterator, Callable, Literal
 from datetime import timedelta, date
 from custom_types import DataRequest
 from hftbacktest import (
@@ -105,7 +105,11 @@ def date_range(start_date: date, end_date: date) -> Iterator[date]:
         current_date += timedelta(days=1)
 
 
-def get_hftbacktest_array(df: pl.DataFrame) -> np.ndarray:
+def get_hftbacktest_array(
+    df: pl.DataFrame,
+    df_time_unit: Literal["s", "ms", "us", "ns"] = "ms",
+    target_time_unit: Literal["s", "ms", "us", "ns"] = "ns",
+) -> np.ndarray:
     """
     Convert a Polars DataFrame representing an incremental orderbook event stream
     into a structured NumPy array compatible with hftbacktest.
@@ -124,8 +128,11 @@ def get_hftbacktest_array(df: pl.DataFrame) -> np.ndarray:
     )
 
     # Directly set other fields from the dataframe
-    arr["exch_ts"] = df["event_time"].to_numpy()
-    arr["local_ts"] = df["received_time"].to_numpy()
+    # Convert time units
+    time_factors = {"s": 1_000_000_000, "ms": 1_000_000, "us": 1_000, "ns": 1}
+    time_multiplier = time_factors[df_time_unit] // time_factors[target_time_unit]
+    arr["exch_ts"] = (df["event_time"].to_numpy() * time_multiplier).astype(np.int64)
+    arr["local_ts"] = (df["received_time"].to_numpy() * time_multiplier).astype(np.int64)
     arr["px"] = df["price"].cast(pl.Float64).to_numpy()
     arr["qty"] = df["quantity"].cast(pl.Float64).to_numpy()
 

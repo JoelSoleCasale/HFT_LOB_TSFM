@@ -130,7 +130,7 @@ def assert_hftbacktest_matches_sampler(
         return structured_array
 
     # Generate data using hftbacktest approach
-    hft_array = get_hftbacktest_array(df_ob)
+    hft_array = get_hftbacktest_array(df_ob, target_time_unit="ms")
     asset = (
         BacktestAsset()
         .data([hft_array])

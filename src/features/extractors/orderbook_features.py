@@ -187,15 +187,23 @@ class AdvancedOrderbookFeatures(BaseFeatureExtractor):
                 # Log return bid price
                 (pl.col("bid1_price") / pl.col("bid1_price").shift(1))
                 .log()
+                .fill_null(0)
                 .alias("log_return_bid"),
                 # Log return ask price
                 (pl.col("ask1_price") / pl.col("ask1_price").shift(1))
                 .log()
+                .fill_null(0)
                 .alias("log_return_ask"),
                 # Log return wap1
-                (pl.col("wap1") / pl.col("wap1").shift(1)).log().alias("log_return_wap1"),
+                (pl.col("wap1") / pl.col("wap1").shift(1))
+                .log()
+                .fill_null(0)
+                .alias("log_return_wap1"),
                 # Log return wap2
-                (pl.col("wap2") / pl.col("wap2").shift(1)).log().alias("log_return_wap2"),
+                (pl.col("wap2") / pl.col("wap2").shift(1))
+                .log()
+                .fill_null(0)
+                .alias("log_return_wap2"),
             ]
         )
 
