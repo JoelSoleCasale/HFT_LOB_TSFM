@@ -11,6 +11,8 @@ embedding_config:
   k: 8 # Number of patches for statistics (if augment_with_statistics=true)
   use_differencing: false # Whether to include differenced embeddings
   device: "cuda" # "cuda" or "cpu"
+  batch_size: 32 # Number of samples to process in parallel
+  stride: 1 # Generate embeddings only for timestamps where timestamp % stride == 0 (1 = all samples)
 
 # Processing configuration
 context_length: 512 # Number of samples to use as context for each embedding

@@ -50,6 +50,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 - use_differencing: Whether to augment with differenced embeddings (default: False)
                 - device: Device to use ("cuda" or "cpu", default: "cuda")
                 - batch_size: Number of samples to process in parallel (default: 32)
+                - stride: Generate embeddings only for timestamps where timestamp % stride == 0 (default: 1, i.e., all samples)
                 - disable_tqdm: Whether to disable progress bars (default: False)
         """
         super().__init__(config)
@@ -66,6 +67,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         self.use_differencing: bool = self.config.get("use_differencing", False)
         self.device: str = self.config.get("device", "cuda")
         self.batch_size: int = self.config.get("batch_size", 32)
+        self.stride: int = self.config.get("stride", 1)
         self.disable_tqdm: bool = self.config.get("disable_tqdm", False)
 
         # Validate configuration
@@ -107,6 +109,9 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {self.batch_size}")
+
+        if self.stride < 1:
+            raise ValueError(f"stride must be at least 1, got {self.stride}")
 
         if self.device not in ["cuda", "cpu"]:
             raise ValueError(f"Invalid device: {self.device}. Must be 'cuda' or 'cpu'")
@@ -327,14 +332,17 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 f"but only have {len(feature_data)}"
             )
 
-        # Prepare all context windows
+        # Prepare context windows for samples matching stride criterion
         all_contexts = []
         valid_indices = []
 
         for i in range(start_index, len(feature_data)):
-            context_data = feature_data[i - context_length + 1 : i + 1]
-            all_contexts.append(context_data)
-            valid_indices.append(i)
+            # Only generate embeddings for timestamps where timestamp % stride == 0
+            if timestamps[i] % self.stride == 0:
+                # Context still includes all samples in the window
+                context_data = feature_data[i - context_length + 1 : i + 1]
+                all_contexts.append(context_data)
+                valid_indices.append(i)
 
         # Process in batches for efficiency
         embeddings_list = []

@@ -134,6 +134,16 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="Device for model inference",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        help="Number of samples to process in parallel",
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        help="Generate embeddings only for timestamps where timestamp %% stride == 0",
+    )
+    parser.add_argument(
         "--context_length",
         type=int,
         help="Number of samples to use as context",
@@ -249,6 +259,8 @@ def build_embedding_config(args: argparse.Namespace, default_cfg: dict) -> dict:
             else base_config["use_differencing"]
         ),
         "device": args.device if args.device else base_config["device"],
+        "batch_size": args.batch_size if args.batch_size else base_config["batch_size"],
+        "stride": args.stride if args.stride else base_config["stride"],
     }
 
     return embedding_config
