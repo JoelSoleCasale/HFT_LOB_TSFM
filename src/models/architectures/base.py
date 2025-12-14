@@ -37,5 +37,20 @@ class FinancialTimeSeriesModel(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
 
+    @classmethod
+    def from_config(cls, config: ModelArchitectureConfig):
+        """
+        Create a model instance from a ModelArchitectureConfig.
+
+        Args:
+            config: Configuration instance containing model parameters
+
+        Returns:
+            Model instance initialized with config parameters
+        """
+        params = config.params().copy()
+        del params["model_type"]
+        return cls(**params)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError

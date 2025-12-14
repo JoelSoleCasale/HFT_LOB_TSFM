@@ -124,8 +124,9 @@ def get_hftbacktest_array(df: pl.DataFrame) -> np.ndarray:
     )
 
     # Directly set other fields from the dataframe
-    arr["exch_ts"] = df["event_time"].to_numpy()
-    arr["local_ts"] = df["received_time"].to_numpy()
+    # Convert millisecond timestamps to nanoseconds (hftbacktest expects nanoseconds)
+    arr["exch_ts"] = (df["event_time"].to_numpy() * 1_000_000).astype(np.int64)
+    arr["local_ts"] = (df["received_time"].to_numpy() * 1_000_000).astype(np.int64)
     arr["px"] = df["price"].cast(pl.Float64).to_numpy()
     arr["qty"] = df["quantity"].cast(pl.Float64).to_numpy()
 

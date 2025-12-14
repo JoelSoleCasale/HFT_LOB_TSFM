@@ -20,12 +20,8 @@ class FeaturePipeline:
             raise ValueError("No extractors in pipeline")
         features = []
         for extractor in self.extractors:
-            try:
-                feature_df = extractor.extract(input_space)
-                features.append(feature_df)
-            except Exception as e:
-                print(f"Error in {extractor.__class__.__name__}: {e}")
-                raise
+            feature_df = extractor.extract(input_space)
+            features.append(feature_df)
         result = features[0]
         for feat in features[1:]:
             result = result.join(feat, on="timestamp", how="left")
