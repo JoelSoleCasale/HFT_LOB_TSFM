@@ -381,7 +381,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
         for i in range(start_index, len(feature_data)):
             # Only generate embeddings for timestamps where timestamp % stride == 0
-            if timestamps[i] % self.stride == 0:
+            if i % self.stride == 0:
                 context_data = feature_data[i - context_length + 1 : i + 1]
                 all_contexts.append(context_data)
                 valid_indices.append(i)
@@ -394,7 +394,6 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
             desc="Generating embeddings",
             leave=False,
             disable=self.disable_tqdm,
-            total=len(all_contexts),
             unit="sample",
             unit_scale=self.batch_size,
         ):
