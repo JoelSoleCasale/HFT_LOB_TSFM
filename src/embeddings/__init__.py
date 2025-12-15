@@ -14,11 +14,13 @@ from .pipeline import EmbeddingPipeline
 # Registries
 from .registry import EmbeddingGeneratorRegistry
 
+# Aggregators
+from .aggregator import EmbeddingAggregator
+
 # Utilities
 from .utils import (
     compute_patch_statistics,
     compute_differenced_sequence,
-    aggregate_sequence,
     extract_feature_columns,
 )
 
@@ -36,10 +38,11 @@ __all__ = [
     "EmbeddingPipeline",
     # Registries
     "EmbeddingGeneratorRegistry",
+    # Aggregators
+    "EmbeddingAggregator",
     # Utilities
     "compute_patch_statistics",
     "compute_differenced_sequence",
-    "aggregate_sequence",
     "extract_feature_columns",
     # Generators
     "ChronosEmbeddingGenerator",

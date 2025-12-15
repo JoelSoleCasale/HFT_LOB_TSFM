@@ -2,7 +2,6 @@
 
 import numpy as np
 import polars as pl
-from typing import Literal
 
 
 def compute_patch_statistics(data: np.ndarray, k: int, normalize: bool = True) -> np.ndarray:
@@ -38,16 +37,13 @@ def compute_patch_statistics(data: np.ndarray, k: int, normalize: bool = True) -
     truncated_len = patch_size * k
     data = data[:truncated_len]
 
-    # Reshape into patches: (k, patch_size, n_features)
     patches = data.reshape(k, patch_size, n_features)
 
-    # Compute statistics for each patch
     means = patches.mean(axis=1)  # (k, n_features)
     stds = patches.std(axis=1)  # (k, n_features)
     mins = patches.min(axis=1)  # (k, n_features)
     maxs = patches.max(axis=1)  # (k, n_features)
 
-    # Concatenate all statistics and flatten
     statistics = np.concatenate([means, stds, mins, maxs], axis=0)  # (4*k, n_features)
 
     return statistics.flatten()  # (4*k*n_features,)
@@ -75,31 +71,6 @@ def compute_differenced_sequence(data: np.ndarray, order: int = 1) -> np.ndarray
         result = np.diff(result, axis=0)
 
     return result
-
-
-def aggregate_sequence(
-    data: np.ndarray, method: Literal["last", "mean", "max", "min"] = "last"
-) -> np.ndarray:
-    """
-    Aggregate a sequence along the time dimension.
-
-    Args:
-        data: Input array of shape (seq_len, n_features)
-        method: Aggregation method ("last", "mean", "max", "min")
-
-    Returns:
-        Aggregated array of shape (n_features,)
-    """
-    if method == "last":
-        return data[-1]
-    elif method == "mean":
-        return data.mean(axis=0)
-    elif method == "max":
-        return data.max(axis=0)
-    elif method == "min":
-        return data.min(axis=0)
-    else:
-        raise ValueError(f"Unknown aggregation method: {method}")
 
 
 def extract_feature_columns(df: pl.LazyFrame, exclude_cols: list[str] | None = None) -> list[str]:

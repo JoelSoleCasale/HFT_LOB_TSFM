@@ -83,6 +83,7 @@ SINGLE_CONFIGS = [
         "config": {
             **BASE_CONFIG_CPU,
             "model_type": "chronos2",
+            "model_size": "base",
             "seq_aggregation": "last",
             "feat_aggregation": "concat",
             "augment_with_statistics": False,
@@ -107,6 +108,7 @@ SINGLE_CONFIGS = [
         "config": {
             **BASE_CONFIG_CPU,
             "model_type": "chronos2",
+            "model_size": "base",
             "seq_aggregation": "mean",
             "feat_aggregation": "mean",
             "augment_with_statistics": True,
@@ -135,6 +137,7 @@ BATCH_CONFIGS = [
         "config": {
             **BASE_CONFIG_CPU,
             "model_type": "chronos2",
+            "model_size": "base",
             "seq_aggregation": "last",
             "feat_aggregation": "concat",
             "augment_with_statistics": False,
@@ -159,6 +162,7 @@ BATCH_CONFIGS = [
         "config": {
             **BASE_CONFIG_CPU,
             "model_type": "chronos2",
+            "model_size": "base",
             "seq_aggregation": "mean",
             "feat_aggregation": "mean",
             "augment_with_statistics": True,
