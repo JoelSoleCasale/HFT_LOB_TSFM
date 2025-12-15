@@ -62,6 +62,8 @@ class EmbeddingProcessor:
         self.orderbook_levels = orderbook_levels
         self.sample_time_delta = sample_time_delta
         self.interpolate = interpolate
+        self.embedding_type = embedding_type
+        self.embedding_config = embedding_config
 
         # Create feature extraction pipeline
         self.feature_pipeline = FeaturePipeline()
@@ -83,13 +85,49 @@ class EmbeddingProcessor:
         logger.info(f"Orderbook folder: {self.orderbook_folder}")
         logger.info(f"Output folder: {self.output_folder}")
 
+    def _get_config_string(self) -> str:
+        """
+        Generate a configuration string for the embedding output path.
+
+        Returns:
+            String encoding key configuration parameters
+        """
+        # Extract relevant config parameters
+        model_type = self.embedding_config.get("model_type", "unknown")
+        model_size = self.embedding_config.get("model_size", "unknown")
+        seq_agg = self.embedding_config.get("seq_aggregation", "last")
+        use_diff = self.embedding_config.get("use_differencing", False)
+        stride = self.embedding_config.get("stride", 1)
+
+        # Build config string with format: type-size_ctx<length>_seq<agg>_diff<bool>_s<stride>
+        config_parts = [
+            f"{model_type}-{model_size}",
+            f"ctx{self.context_length}",
+            f"seq{seq_agg}",
+        ]
+
+        if use_diff:
+            config_parts.append("diff")
+
+        if stride > 1:
+            config_parts.append(f"s{stride}")
+
+        return "_".join(config_parts)
+
     def _get_orderbook_path(self, symbol: str, exchange: str, date_str: str) -> Path:
         """Get path to orderbook parquet file."""
         return self.orderbook_folder / exchange / symbol / f"{date_str}_L20.parquet"
 
     def _get_output_path(self, symbol: str, exchange: str, date_str: str, hour: int) -> Path:
-        """Get path to output embedding parquet file."""
-        return self.output_folder / exchange / symbol / date_str / f"{hour:02d}.parquet"
+        """
+        Get path to output embedding parquet file with configuration details.
+
+        Path format: <output_folder>/<exchange>/<symbol>/<config_string>/<date>-<hour>.parquet
+        """
+        config_str = self._get_config_string()
+        return (
+            self.output_folder / exchange / symbol / config_str / f"{date_str}-{hour:02d}.parquet"
+        )
 
     def _load_and_extract_features(
         self, symbol: str, exchange: str, date_str: str
@@ -119,10 +157,6 @@ class EmbeddingProcessor:
             .select_levels(self.orderbook_levels)
             .sample_by_time(time_delta=self.sample_time_delta, interpolate=self.interpolate)
         )
-
-        # Skip first second (10 samples at 100ms intervals) to avoid initialization issues
-        if self.sample_time_delta == 100_000_000:  # 100ms
-            orderbook._data._df = orderbook.df.slice(10, None)
 
         # Create input space
         input_space = InputSpace(orderbook_snapshots=orderbook)
