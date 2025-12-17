@@ -25,6 +25,7 @@ class FinancialDataset(Dataset):
         features: pl.LazyFrame,
         labels: pl.LazyFrame,
         sequence_length: int = 10,
+        stride: int = 1,
         feature_columns: list[str] | None = None,
         label_columns: list[str] | None = None,
         scaler: StandardScaler | None = None,
@@ -38,6 +39,7 @@ class FinancialDataset(Dataset):
             features: Polars LazyFrame containing features
             labels: Polars LazyFrame containing labels
             sequence_length: Length of input sequences
+            stride: Step size between consecutive sequences (default: 1 for no skipping)
             feature_columns: List of feature column names to use
             label_columns: List of label column names to use
             scaler: Pre-fitted scaler for features
@@ -45,6 +47,7 @@ class FinancialDataset(Dataset):
             device: Device to store tensors on ('cpu', 'cuda', or torch.device)
         """
         self.sequence_length = sequence_length
+        self.stride = stride
         self.feature_columns = feature_columns
         self.label_columns = label_columns
         self.device = get_device(device)
@@ -134,6 +137,7 @@ class FinancialDataset(Dataset):
         self.valid_indices = self._get_valid_sequence_indices()
 
         logger.info(f"Dataset created with {len(self.valid_indices)} valid sequences")
+        logger.info(f"Sequence length: {self.sequence_length}, Stride: {self.stride}")
         logger.info(f"Features shape: {self.features.shape}")
         logger.info(f"Labels shape: {self.labels.shape}")
         logger.info(f"Device: {self.device}")
@@ -174,10 +178,10 @@ class FinancialDataset(Dataset):
     def _get_valid_sequence_indices(self) -> list[int]:
         """Get indices where we can create valid sequences."""
         if not torch.isnan(self.features).any():
-            return list(range(len(self.features) - self.sequence_length + 1))
+            return list(range(0, len(self.features) - self.sequence_length + 1, self.stride))
 
         valid_indices = []
-        for i in range(len(self.features) - self.sequence_length + 1):
+        for i in range(0, len(self.features) - self.sequence_length + 1, self.stride):
             # Check if the sequence has any NaN values
             if not torch.isnan(self.features[i : i + self.sequence_length]).any():
                 valid_indices.append(i)
@@ -257,6 +261,7 @@ def create_dataloaders(
         features=features,
         labels=labels,
         sequence_length=data_config.sequence_length,
+        stride=data_config.stride,
         feature_columns=feature_columns,
         label_columns=label_columns,
         scaler=None,
@@ -363,6 +368,7 @@ def prepare_data_for_training(
         features=features,
         labels=labels,
         sequence_length=data_config.sequence_length,
+        stride=data_config.stride,
         feature_columns=feature_columns,
         label_columns=label_columns,
         scaler=scaler,

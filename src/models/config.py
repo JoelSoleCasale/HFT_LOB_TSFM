@@ -17,6 +17,7 @@ class DataConfig:
     """Configuration for data processing and splitting."""
 
     sequence_length: int = 10
+    stride: int = 1
     train_split: float = 0.8
     val_split: float = 0.1
     test_split: float = 0.1
