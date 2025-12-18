@@ -49,7 +49,8 @@ class TestIterSlices:
         slices = list(iter_slices(lazy_df, n_rows=5))
 
         assert len(slices) == 1
-        assert slices[0].equals(df)
+        assert isinstance(slices[0], pl.LazyFrame)
+        assert slices[0].collect().equals(df)
 
     def test_iter_slices_lazyframe_multiple_slices(self):
         """Test iter_slices with LazyFrame that requires multiple slices."""
@@ -59,13 +60,17 @@ class TestIterSlices:
 
         assert len(slices) == 3  # 7 rows / 3 = 2.33, so 3 slices
 
+        # Check that all slices are LazyFrames
+        for slice_lf in slices:
+            assert isinstance(slice_lf, pl.LazyFrame)
+
         # Check first slice
         expected_first = pl.DataFrame({"a": [0, 1, 2], "b": [7, 8, 9]})
-        assert slices[0].equals(expected_first)
+        assert slices[0].collect().equals(expected_first)
 
         # Check last slice
         expected_last = pl.DataFrame({"a": [6], "b": [13]})
-        assert slices[2].equals(expected_last)
+        assert slices[2].collect().equals(expected_last)
 
     def test_iter_slices_exact_division(self):
         """Test iter_slices when rows divide evenly into slices."""

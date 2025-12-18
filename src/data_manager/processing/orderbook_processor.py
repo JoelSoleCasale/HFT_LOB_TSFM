@@ -84,6 +84,9 @@ class OrderBookProcessor:
                 df.select([request.reference_ts, "price", "quantity", "side"]),
                 n_rows=request.batch_size,
             ):
+                if isinstance(batch_df, pl.LazyFrame):
+                    batch_df = batch_df.collect()
+
                 for ts, price, quantity, side in batch_df.iter_rows():
 
                     if ts == prev_ts:
