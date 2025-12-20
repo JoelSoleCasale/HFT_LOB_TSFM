@@ -22,6 +22,9 @@ htmlcov/
 # wandb
 wandb/
 
+# bash files
+*.sh
+
 model_checkpoint/
 logs/
 
