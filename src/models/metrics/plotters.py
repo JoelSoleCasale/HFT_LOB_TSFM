@@ -9,6 +9,7 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 from .core import MetricPlotter
+from typing import Literal
 
 
 class ConfusionMatrixPlotter(MetricPlotter):
@@ -335,4 +336,161 @@ class LossLandscapePlotter(MetricPlotter):
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
 
+        return fig
+
+
+class ExpectedReturnVsThresholdPlotter(MetricPlotter):
+    """Plot expected return across confidence thresholds for different commission rates."""
+
+    def __init__(
+        self,
+        lambda_value: float = 1.0,
+        theta_values: list[float] | None = None,
+        num_points: int = 50,
+        figsize: tuple = (12, 7),
+    ):
+        super().__init__("expected_return_vs_threshold")
+        self.lambda_value = lambda_value
+        self.theta_values = theta_values or [0.0, 0.0001, 0.001, 0.01]
+        self.num_points = num_points
+        self.figsize = figsize
+
+    @property
+    def requires_probabilities(self) -> bool:
+        return True
+
+    def plot(
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+        aggregation_method: Literal["mean", "sum"] = "sum",
+        **kwargs,
+    ) -> plt.Figure:
+        from .calculators import ExpectedReturnCalculator
+
+        thresholds = np.linspace(0, 1, self.num_points)
+
+        # Store results for each theta
+        results_by_theta = {theta: [] for theta in self.theta_values}
+        num_predictions_at_threshold = []
+
+        # Get probabilities
+        if predictions.dim() > 1:
+            probabilities = torch.softmax(predictions, dim=1)
+            max_probs, _ = torch.max(probabilities, dim=1)
+        else:
+            max_probs = torch.ones_like(predictions)
+
+        for threshold in thresholds:
+            # Filter predictions based on confidence threshold
+            confidence_mask = max_probs >= threshold
+
+            if confidence_mask.sum() == 0:
+                # No predictions meet the threshold
+                for theta in self.theta_values:
+                    results_by_theta[theta].append(np.nan)
+                num_predictions_at_threshold.append(0)
+                continue
+
+            # Get filtered predictions and targets
+            filtered_predictions = predictions[confidence_mask]
+            filtered_targets = targets[confidence_mask]
+            num_predictions_at_threshold.append(confidence_mask.sum().item())
+
+            # Binarize the filtered predictions: create one-hot encoding based on argmax
+            # Shape: (num_filtered, num_classes)
+            filtered_probs = torch.softmax(filtered_predictions, dim=1)
+            pred_labels = torch.argmax(filtered_probs, dim=1)
+
+            # Create one-hot encoded predictions (binarized)
+            binarized_predictions = torch.zeros_like(filtered_predictions)
+            binarized_predictions[torch.arange(len(pred_labels)), pred_labels] = 1.0
+
+            # Calculate expected return for each theta
+            for theta in self.theta_values:
+                calc = ExpectedReturnCalculator(
+                    lambda_values=self.lambda_value,
+                    theta_values=theta,
+                    aggregate=aggregation_method,
+                )
+                er_results = calc.calculate(
+                    binarized_predictions, filtered_targets, are_logits=False
+                )
+                results_by_theta[theta].append(er_results[0].value)
+
+        # Create plot
+        fig, ax1 = plt.subplots(figsize=self.figsize)
+
+        # Define color palette for different theta values
+        colors = plt.cm.viridis(np.linspace(0, 0.9, len(self.theta_values)))
+
+        # Plot expected return for each theta
+        for idx, theta in enumerate(self.theta_values):
+            er_values = results_by_theta[theta]
+            # Filter out NaN values for plotting
+            valid_points = [(t, er) for t, er in zip(thresholds, er_values) if not np.isnan(er)]
+
+            if valid_points:
+                valid_thresholds, valid_ers = zip(*valid_points)
+                ax1.plot(
+                    valid_thresholds,
+                    valid_ers,
+                    linewidth=2,
+                    marker="o",
+                    markersize=4,
+                    label=f"θ = {theta*1e4:.1f}bps",
+                    color=colors[idx],
+                )
+
+                # Mark the maximum expected return for this theta
+                max_er = max(valid_ers)
+                max_threshold = valid_thresholds[valid_ers.index(max_er)]
+                ax1.plot(
+                    max_threshold,
+                    max_er,
+                    marker="*",
+                    markersize=15,
+                    color=colors[idx],
+                    markeredgecolor="black",
+                    markeredgewidth=1,
+                    zorder=5,
+                )
+
+        ax1.set_xlabel("Confidence Threshold", fontsize=12)
+        ax1.set_ylabel("Expected Return", fontsize=12)
+        ax1.set_title(
+            f"Expected Return vs Confidence Threshold (λ = {self.lambda_value*1e4:.1f}bps)",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax1.grid(True, alpha=0.3)
+        ax1.set_xlim(0, 1)
+        ax1.legend(loc="best", fontsize=10)
+        ax1.axhline(y=0, color="red", linestyle="--", alpha=0.5, linewidth=1)
+
+        # Add secondary y-axis for number of predictions
+        ax2 = ax1.twinx()
+        ax2.plot(
+            thresholds,
+            num_predictions_at_threshold,
+            linewidth=2,
+            marker="^",
+            markersize=4,
+            label="Number of Predictions",
+            color="gray",
+            linestyle="--",
+            alpha=0.6,
+        )
+        ax2.set_ylabel("Number of Predictions (log scale)", fontsize=12, color="gray")
+        ax2.tick_params(axis="y", labelcolor="gray")
+        ax2.set_yscale("log")
+
+        # Set y-axis limits for number of predictions
+        if num_predictions_at_threshold:
+            max_preds = max(num_predictions_at_threshold)
+            min_preds = min([p for p in num_predictions_at_threshold if p > 0], default=1)
+            if max_preds > 0:
+                ax2.set_ylim(max(0.5, min_preds * 0.5), max_preds * 2)
+
+        plt.tight_layout()
         return fig

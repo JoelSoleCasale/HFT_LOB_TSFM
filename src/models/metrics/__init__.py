@@ -26,12 +26,14 @@ from .calculators import (
     ConfusionMatrixCalculator,
     PerClassMetricsCalculator,
     ROCAUCCalculator,
+    ExpectedReturnCalculator,
 )
 from .plotters import (
     ConfusionMatrixPlotter,
     TradeAccuracyVsThresholdPlotter,
     ROCCurvePlotter,
     PredictionDistributionPlotter,
+    ExpectedReturnVsThresholdPlotter,
 )
 from .presets import (
     create_classification_suite,
@@ -54,11 +56,13 @@ __all__ = [
     "ConfusionMatrixCalculator",
     "PerClassMetricsCalculator",
     "ROCAUCCalculator",
+    "ExpectedReturnCalculator",
     # Plotters
     "ConfusionMatrixPlotter",
     "TradeAccuracyVsThresholdPlotter",
     "ROCCurvePlotter",
     "PredictionDistributionPlotter",
+    "ExpectedReturnVsThresholdPlotter",
     # Presets
     "create_classification_suite",
     "create_trading_suite",

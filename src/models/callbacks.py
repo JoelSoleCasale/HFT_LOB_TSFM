@@ -164,6 +164,8 @@ class WandbMetricsLogger(Callback):
         log_frequency: int = 1,
         num_classes: int = 3,
         class_names: list[str] | None = None,
+        lambda_value: float = 1.0,
+        theta_values: list[float] | None = None,
     ):
         """
         Initialize WandB metrics logger callback.
@@ -174,12 +176,16 @@ class WandbMetricsLogger(Callback):
             log_frequency: Log metrics every N epochs
             num_classes: Number of classes for classification
             class_names: Optional list of class names
+            lambda_value: Horizontal barrier distance for expected return calculation
+            theta_values: List of commission rates for expected return calculation
         """
         self.log_config = log_config
         self.train_config = train_config
         self.log_frequency = log_frequency
         self.num_classes = num_classes
         self.class_names = class_names or [f"class_{i}" for i in range(num_classes)]
+        self.lambda_value = lambda_value
+        self.theta_values = theta_values or [0.0]
 
         # Create WandB logger
         self.wandb_logger = WandbLogger(log_config=log_config, train_config=train_config)
@@ -189,6 +195,28 @@ class WandbMetricsLogger(Callback):
             num_classes=num_classes,
             class_names=self.class_names,
             trade_threshold=0.5,
+        )
+
+        # Create expected return calculators for each theta
+        from .metrics.calculators import ExpectedReturnCalculator
+        import numpy as np
+
+        self.expected_return_calculators = [
+            ExpectedReturnCalculator(
+                lambda_values=np.array([lambda_value]),
+                theta_values=np.array([theta]),
+                aggregate="mean",
+            )
+            for theta in self.theta_values
+        ]
+
+        # Create expected return vs threshold plotter
+        from .metrics.plotters import ExpectedReturnVsThresholdPlotter
+
+        self.expected_return_plotter = ExpectedReturnVsThresholdPlotter(
+            lambda_value=lambda_value,
+            theta_values=theta_values,
+            num_points=50,
         )
 
     def on_train_begin(self, trainer: Any) -> None:
@@ -235,6 +263,23 @@ class WandbMetricsLogger(Callback):
             except Exception as e:
                 logger.warning(f"Failed to compute detailed metrics: {e}")
 
+            # Compute expected returns for training and validation
+            try:
+                for calc in self.expected_return_calculators:
+                    # Training expected return
+                    train_er_results = calc.calculate(train_predictions, train_targets)
+                    for result in train_er_results:
+                        theta = result.metadata["theta"]
+                        train_metrics[f"train_expected_return_theta_{theta:.4f}"] = result.value
+
+                    # Validation expected return
+                    val_er_results = calc.calculate(val_predictions, val_targets)
+                    for result in val_er_results:
+                        theta = result.metadata["theta"]
+                        val_metrics[f"val_expected_return_theta_{theta:.4f}"] = result.value
+            except Exception as e:
+                logger.warning(f"Failed to compute expected returns: {e}")
+
             # Combine and log
             combined_metrics = {**train_metrics, **val_metrics}
             self.wandb_logger.log_metrics(combined_metrics, step=epoch)
@@ -253,6 +298,21 @@ class WandbMetricsLogger(Callback):
         except Exception as e:
             logger.warning(f"Failed to compute final metrics: {e}")
 
+        # Compute expected returns on test set for each theta
+        try:
+            test_er_metrics = {}
+            for calc in self.expected_return_calculators:
+                test_er_results = calc.calculate(y_pred, y_true)
+                for result in test_er_results:
+                    theta = result.metadata["theta"]
+                    metric_name = f"test_expected_return_theta_{theta:.4f}"
+                    test_er_metrics[metric_name] = result.value
+
+            self.wandb_logger.log_metrics(test_er_metrics)
+            logger.info(f"Test expected returns: {test_er_metrics}")
+        except Exception as e:
+            logger.warning(f"Failed to compute test expected returns: {e}")
+
         # Generate and log all plots
         try:
             # Get training history for loss landscape plot
@@ -263,6 +323,11 @@ class WandbMetricsLogger(Callback):
                     break
 
             plots = self.metrics_suite.generate_all_plots(y_pred, y_true, history=history)
+
+            # Add expected return vs threshold plot
+            er_plot = self.expected_return_plotter.plot(y_pred, y_true)
+            plots["expected_return_vs_threshold"] = er_plot
+
             self.wandb_logger.log_plots(plots)
             logger.info(f"Logged {len(plots)} plots to WandB")
         except Exception as e:

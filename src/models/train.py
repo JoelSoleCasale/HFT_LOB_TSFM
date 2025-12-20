@@ -445,6 +445,8 @@ def train_model(
                 log_frequency=logging_config.log_metrics_frequency,
                 num_classes=config.get_data_config().num_classes,
                 class_names=config.get_data_config().class_names,
+                lambda_value=logging_config.lambda_value,
+                theta_values=logging_config.theta_values,
             )
         )
 

@@ -3,6 +3,7 @@ Metric calculator implementations.
 """
 
 import torch
+import numpy as np
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -12,6 +13,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 from .core import MetricCalculator, MetricResult
+from typing import Literal
 
 
 class AccuracyCalculator(MetricCalculator):
@@ -189,3 +191,133 @@ class ROCAUCCalculator(MetricCalculator):
             roc_auc = 0.0
 
         return MetricResult(name=self.name, value=roc_auc)
+
+
+class ExpectedReturnCalculator(MetricCalculator):
+    """Calculate expected return for financial predictions.
+
+    Computes expected return based on:
+    - Horizontal barrier distance lambda (profit/loss per correct/incorrect prediction)
+    - Commission theta (transaction cost proportional to predicted probability of taking a position)
+
+    Uses matrix formulation: y^T A y = λ y^T A₁ ŷ - θ y^T A₂ ŷ
+    where:
+    - y is the one-hot encoded true label
+    - ŷ is the predicted probability distribution
+    - A₁ encodes directional returns
+    - A₂ encodes commission structure
+
+    Supports vectorized computation over multiple lambda/theta values.
+    """
+
+    def __init__(
+        self,
+        lambda_values: float | list[float] | np.ndarray = 1.0,
+        theta_values: float | list[float] | np.ndarray = 0.0,
+        aggregate: Literal["mean", "sum"] = "mean",
+    ):
+        """
+        Initialize expected return calculator.
+
+        Args:
+            lambda_values: Horizontal barrier distance(s). Can be scalar, list, or array.
+            theta_values: Commission rate(s). Can be scalar, list, or array.
+            aggregate: How to aggregate returns across samples. Either "mean" or "sum".
+        """
+        super().__init__("expected_return")
+        self.lambda_values = np.atleast_1d(np.asarray(lambda_values))
+        self.theta_values = np.atleast_1d(np.asarray(theta_values))
+        self.aggregate = aggregate
+
+        # Define A₁ matrix: encodes directional returns
+        # Rows/cols correspond to classes {0, 1, 2} representing {-1, 0, 1}
+        self.A1 = np.array(
+            [
+                [1, 0, -1],  # True: -1, Pred: -1 -> +1, 0 -> 0, +1 -> -1
+                [0, 0, 0],  # True:  0, always 0 return
+                [-1, 0, 1],  # True: +1, Pred: -1 -> -1, 0 -> 0, +1 -> +1
+            ]
+        )
+
+        # Define A₂ matrix: encodes commission (sum of non-neutral probs)
+        # Each row sums the probabilities of classes 0 and 2
+        self.A2 = np.array(
+            [
+                [1, 0, 1],
+                [1, 0, 1],
+                [1, 0, 1],
+            ]
+        )
+
+    @property
+    def requires_probabilities(self) -> bool:
+        return True
+
+    def calculate(
+        self, predictions: torch.Tensor, targets: torch.Tensor, are_logits: bool = True, **kwargs
+    ) -> list[MetricResult]:
+        """
+        Calculate expected return for all combinations of lambda and theta.
+
+        Args:
+            predictions: Model predictions as logits or probabilities (N x 3)
+            targets: True labels (N,) with values {0, 1, 2} representing {-1, 0, 1}
+            are_logits: Whether predictions are logits (True) or probabilities (False)
+
+        Returns:
+            List of MetricResult objects, one for each (lambda, theta) combination
+        """
+        # Get probabilities (N x 3)
+        if are_logits and predictions.dim() > 1:
+            probs = torch.softmax(predictions, dim=1).cpu().numpy()
+        else:
+            probs = predictions.cpu().numpy()
+
+        target_np = targets.cpu().numpy()
+        N = len(target_np)
+
+        # Create one-hot encoded true labels (N x 3)
+        y_onehot = np.zeros((N, 3))
+        y_onehot[np.arange(N), target_np] = 1
+
+        # Compute y^T A₁ ŷ for all samples (vectorized)
+        # For each sample i: y_i^T A₁ ŷ_i
+        directional_returns = np.einsum("ni,ij,nj->n", y_onehot, self.A1, probs)
+
+        # Compute y^T A₂ ŷ for all samples (vectorized)
+        # This is equivalent to: probs[:, 0] + probs[:, 2]
+        commission_probs = np.einsum("ni,ij,nj->n", y_onehot, self.A2, probs)
+
+        # Compute expected return for all combinations
+        results = []
+        for lambda_val in self.lambda_values:
+            for theta_val in self.theta_values:
+                # Expected return = λ * directional_returns - θ * commission_probs
+                expected_returns = lambda_val * directional_returns - theta_val * commission_probs
+
+                # Aggregate according to specified method
+                if self.aggregate == "mean":
+                    aggregated_return = np.mean(expected_returns)
+                elif self.aggregate == "sum":
+                    aggregated_return = np.sum(expected_returns)
+                else:
+                    raise ValueError(
+                        f"Invalid aggregate method: {self.aggregate}. Use 'mean' or 'sum'."
+                    )
+
+                # Create metric name
+                metric_name = f"expected_return_lambda_{lambda_val:.4f}_theta_{theta_val:.4f}"
+
+                results.append(
+                    MetricResult(
+                        name=metric_name,
+                        value=aggregated_return,
+                        metadata={
+                            "lambda": lambda_val,
+                            "theta": theta_val,
+                            "aggregate": self.aggregate,
+                        },
+                    )
+                )
+
+        return results

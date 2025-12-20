@@ -78,6 +78,10 @@ class LoggingConfig:
     log_trade_accuracy_vs_threshold: bool = True
     log_predictions: bool = False
 
+    # Expected return parameters
+    lambda_value: float = 5e-4  # Horizontal barrier distance for expected return
+    theta_values: list[float] = field(default_factory=lambda: [0.0, 5e-4])  # Commission rates
+
 
 @dataclass
 class ModelConfig:

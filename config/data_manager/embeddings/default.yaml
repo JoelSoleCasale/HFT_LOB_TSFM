@@ -3,16 +3,16 @@ embedding_type: "chronos" # Type of embedding generator to use
 
 # Embedding-specific configuration
 embedding_config:
-  model_type: "bolt" # "t5" or "bolt"
-  model_size: "mini" # "mini", "small", "base", "large"
+  model_type: "chronos2" # "t5", "bolt" or "chronos2"
+  model_size: "base" # "mini", "small", "base", "large"
   seq_aggregation: "last" # "last" or "mean" - aggregation across sequence dimension
   feat_aggregation: "concat" # "concat" or "mean" - aggregation across features
   augment_with_statistics: true # Whether to augment embeddings with k-patch statistics
   k: 8 # Number of patches for statistics (if augment_with_statistics=true)
   use_differencing: false # Whether to include differenced embeddings
   device: "cuda" # "cuda" or "cpu"
-  batch_size: 32 # Number of samples to process in parallel
-  stride: 1 # Generate embeddings only for timestamps where timestamp % stride == 0 (1 = all samples)
+  batch_size: 2048 # Number of samples to process in parallel
+  stride: 5 # Generate embeddings only for timestamps where timestamp % stride == 0 (1 = all samples)
 
 # Processing configuration
 context_length: 512 # Number of samples to use as context for each embedding
@@ -32,12 +32,12 @@ symbol:
 exchange:
   - binance_futures
 orderbook_subfolder: "orderbook_snapshots" # Subfolder under data/ containing orderbook files
-output_subfolder: "embeddings" # Subfolder under data/ for saving embeddings
+output_subfolder: "/scratch/PI/palomar/joel_sole/embedding_data"
 
 # Date range configuration
 dates:
   start_date: "2025-07-01"
-  end_date: "2025-07-01" # If null, use today's date
+  end_date: "2025-07-10" # If null, use today's date
 
 # Processing options
 overwrite_existing: false # Whether to overwrite existing embedding files

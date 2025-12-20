@@ -155,6 +155,8 @@ def main():
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
+            lambda_value=directional_return_label.threshold,
+            theta_values=[0.0, 1e-4, 4e-4],
         ),
     )
 

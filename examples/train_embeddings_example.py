@@ -295,7 +295,7 @@ def main():
     )
 
     # Build label pipeline
-    directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 3e-4})
+    directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 5e-4})
 
     print("Extracting labels...")
     labels = directional_return_label.extract(input_space).collect()
@@ -382,6 +382,8 @@ def main():
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
+            lambda_value=directional_return_label.threshold,
+            theta_values=[0.0, 1e-4, 4e-4],
         ),
     )
 
