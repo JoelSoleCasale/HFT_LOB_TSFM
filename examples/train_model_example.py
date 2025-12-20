@@ -16,7 +16,7 @@ from features import (
     InputSpace,
     FeaturePipeline,
     FeatureExtractorRegistry,
-    DirectionalLabel,
+    TripleBarrierLabel,
 )
 from models import (
     ModelConfig,
@@ -58,9 +58,6 @@ def main():
         .sample_by_time(time_delta=100_000_000, interpolate=True)
     )
 
-    # Ignore first second
-    orderbook_data._data._df = orderbook_data.df[10:]
-
     print("Creating input space and feature pipeline...")
 
     # Create input space
@@ -73,7 +70,7 @@ def main():
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
     # Build label pipeline
-    directional_return_label = DirectionalLabel(config={"horizon": 200, "threshold": 3e-4})
+    directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 3e-4})
 
     print("Extracting features and labels...")
 
@@ -98,8 +95,8 @@ def main():
     # Example 1: LSTM Configuration
     lstm_config = LSTMConfig(
         input_size=len(features.columns) - 1,  # exclude timestamp
-        hidden_size=128,
-        num_layers=2,
+        hidden_size=64,
+        num_layers=1,
         output_size=3,  # -1, 0, 1 for directional labels
         dropout=0.2,
         bidirectional=True,
@@ -136,14 +133,15 @@ def main():
         data=DataConfig(
             sequence_length=256,
             batch_size=1024,
+            stride=5,
             train_split=0.8,
             val_split=0.1,
             test_split=0.1,
             device="cuda",
         ),
         training=TrainingConfig(
-            learning_rate=0.005,
-            num_epochs=5,
+            learning_rate=0.001,
+            num_epochs=50,
             early_stopping_patience=5,
             optimizer="adam",  # "adam", "adamw", "sgd", "rmsprop"
             scheduler="cosine",  # "cosine", "step", "plateau", None
@@ -153,7 +151,7 @@ def main():
         ),
         logging=LoggingConfig(
             project_name="financial-models",
-            experiment_name="btc_directional_prediction",
+            experiment_name="small_noAtt_lstm_btc_directional_prediction",
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
