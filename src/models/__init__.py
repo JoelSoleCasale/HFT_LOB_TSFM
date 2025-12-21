@@ -39,7 +39,6 @@ from .metrics import (
     MetricSuite,
 )
 from .metrics.logger import WandbLogger
-from .losses import FocalLoss
 from .callbacks import (
     Callback,
     EarlyStopping,
@@ -91,8 +90,6 @@ __all__ = [
     "create_classification_suite",
     "MetricSuite",
     "WandbLogger",
-    # Losses
-    "FocalLoss",
     # Callbacks
     "Callback",
     "EarlyStopping",

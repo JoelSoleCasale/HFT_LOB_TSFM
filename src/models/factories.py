@@ -5,7 +5,7 @@ Registry and factory system for model components.
 import torch.nn as nn
 import torch.optim as optim
 
-from .losses import FocalLoss
+from .losses import FocalLoss, ExpectedReturnLoss
 from .architectures.base import ModelArchitectureConfig
 from .architectures.mlp import MLPConfig
 from .architectures.lstm import LSTMConfig
@@ -35,6 +35,7 @@ CRITERION_REGISTRY = {
     "mse": nn.MSELoss,
     "mae": nn.L1Loss,
     "focal": FocalLoss,
+    "expected_return": ExpectedReturnLoss,
 }
 
 
