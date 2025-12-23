@@ -125,3 +125,48 @@ class CTABLFeatures(BaseFeatureExtractor):
 
     def get_expected_feature_count(self) -> int:
         return self.levels * 4
+
+
+@FeatureExtractorRegistry.register("deeplob_attention_features")
+class DeepLOBAttentionFeatures(BaseFeatureExtractor):
+    """
+    Extract orderbook features formatted for DeepLOB-Attention model.
+
+    Same as DeepLOB: 40 features for 10 levels ordered per level as
+    [ask_price, ask_volume, bid_price, bid_volume].
+    """
+
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.levels = self.config.get("levels", 10)
+        self.dependencies = ["orderbook_snapshots"]
+
+        self.feature_names = []
+        for level in range(1, self.levels + 1):
+            self.feature_names.extend(
+                [
+                    f"ask{level}_price",
+                    f"ask{level}_qty",
+                    f"bid{level}_price",
+                    f"bid{level}_qty",
+                ]
+            )
+
+    def extract(self, input_space: InputSpace) -> pl.LazyFrame:
+        self.validate_input(input_space)
+        df: pl.LazyFrame = input_space.orderbook_snapshots.df
+
+        columns_to_select = [pl.col("timestamp")]
+        for level in range(1, self.levels + 1):
+            columns_to_select.extend(
+                [
+                    pl.col(f"ask{level}_price"),
+                    pl.col(f"ask{level}_qty"),
+                    pl.col(f"bid{level}_price"),
+                    pl.col(f"bid{level}_qty"),
+                ]
+            )
+        return df.select(columns_to_select)
+
+    def get_expected_feature_count(self) -> int:
+        return self.levels * 4
