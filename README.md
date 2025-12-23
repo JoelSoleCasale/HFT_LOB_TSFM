@@ -1,7 +1,7 @@
 # Setup
 
 1. Install [uv](https://docs.astral.sh/uv/)
-2. Install dependencies: `uv sync`
+2. Install dependencies: `uv sync` (use `uv sync --extra cu126`, `uv sync --extra cu128`, or `uv sync --extra cu130` to include dev dependencies for specific CUDA versions)
 3. Set up pre-commit hooks: `uv run poe hooks`
 4. To download the data, an API key must be set in a `.env` file with the name `CRYPTOHFTDATA_API_KEY`.
 
