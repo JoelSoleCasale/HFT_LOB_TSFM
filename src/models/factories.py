@@ -10,7 +10,14 @@ from .architectures.base import ModelArchitectureConfig, FinancialTimeSeriesMode
 from .architectures.mlp import MLPConfig, MLPTimeSeriesModel
 from .architectures.lstm import LSTMConfig, LSTMTimeSeriesModel
 from .architectures.transformer import TransformerConfig, TransformerTimeSeriesModel
-from .architectures.lob import DeepLOBConfig, DeepLOBModel, CTABLConfig, CTABLModel
+from .architectures.lob import (
+    DeepLOBConfig,
+    DeepLOBModel,
+    CTABLConfig,
+    CTABLModel,
+    DeepLOBAttentionConfig,
+    DeepLOBAttentionModel,
+)
 
 
 # Optimizer registry
@@ -47,6 +54,7 @@ ARCHITECTURE_REGISTRY = {
     "mlp": MLPConfig,
     "deeplob": DeepLOBConfig,
     "ctabl": CTABLConfig,
+    "deeplob_attention": DeepLOBAttentionConfig,
 }
 
 
@@ -57,6 +65,7 @@ MODEL_CLASS_REGISTRY = {
     "transformer": TransformerTimeSeriesModel,
     "deeplob": DeepLOBModel,
     "ctabl": CTABLModel,
+    "deeplob_attention": DeepLOBAttentionModel,
 }
 
 
