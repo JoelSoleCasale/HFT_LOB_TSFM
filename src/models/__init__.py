@@ -10,12 +10,12 @@ This module provides:
 - Factory pattern for model components
 """
 
-from .model import create_model
 from .architectures import (
     FinancialTimeSeriesModel,
     MLPTimeSeriesModel,
     LSTMTimeSeriesModel,
     TransformerTimeSeriesModel,
+    DeepLOBModel,
 )
 from .architectures.transformer import PositionalEncoding
 from .train import ModelTrainer, train_model
@@ -32,6 +32,7 @@ from .architectures import (
     LSTMConfig,
     TransformerConfig,
     MLPConfig,
+    DeepLOBConfig,
 )
 from .metrics import (
     create_trading_suite,
@@ -52,10 +53,12 @@ from .factories import (
     SCHEDULER_REGISTRY,
     CRITERION_REGISTRY,
     ARCHITECTURE_REGISTRY,
+    MODEL_CLASS_REGISTRY,
     create_optimizer,
     create_scheduler,
     create_criterion,
     create_architecture_config,
+    create_model,
 )
 
 __all__ = [
@@ -64,6 +67,7 @@ __all__ = [
     "MLPTimeSeriesModel",
     "LSTMTimeSeriesModel",
     "TransformerTimeSeriesModel",
+    "DeepLOBModel",
     "PositionalEncoding",
     "create_model",
     # Training
@@ -85,6 +89,7 @@ __all__ = [
     "LSTMConfig",
     "TransformerConfig",
     "MLPConfig",
+    "DeepLOBConfig",
     # Metrics
     "create_trading_suite",
     "create_classification_suite",
@@ -102,6 +107,7 @@ __all__ = [
     "SCHEDULER_REGISTRY",
     "CRITERION_REGISTRY",
     "ARCHITECTURE_REGISTRY",
+    "MODEL_CLASS_REGISTRY",
     "create_optimizer",
     "create_scheduler",
     "create_criterion",

@@ -6,10 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 
 from .losses import FocalLoss, ExpectedReturnLoss
-from .architectures.base import ModelArchitectureConfig
-from .architectures.mlp import MLPConfig
-from .architectures.lstm import LSTMConfig
-from .architectures.transformer import TransformerConfig
+from .architectures.base import ModelArchitectureConfig, FinancialTimeSeriesModel
+from .architectures.mlp import MLPConfig, MLPTimeSeriesModel
+from .architectures.lstm import LSTMConfig, LSTMTimeSeriesModel
+from .architectures.transformer import TransformerConfig, TransformerTimeSeriesModel
+from .architectures.lob import DeepLOBConfig, DeepLOBModel
 
 
 # Optimizer registry
@@ -44,6 +45,16 @@ ARCHITECTURE_REGISTRY = {
     "lstm": LSTMConfig,
     "transformer": TransformerConfig,
     "mlp": MLPConfig,
+    "deeplob": DeepLOBConfig,
+}
+
+
+# Model class registry - maps model_type to model class
+MODEL_CLASS_REGISTRY = {
+    "mlp": MLPTimeSeriesModel,
+    "lstm": LSTMTimeSeriesModel,
+    "transformer": TransformerTimeSeriesModel,
+    "deeplob": DeepLOBModel,
 }
 
 
@@ -185,3 +196,25 @@ def create_architecture_config(model_type: str, arch_dict: dict) -> ModelArchite
 
     config_class = ARCHITECTURE_REGISTRY[model_type_lower]
     return config_class(**arch_dict)
+
+
+def create_model(model_type: str, **kwargs) -> FinancialTimeSeriesModel:
+    """
+    Factory function to create models by type.
+
+    Args:
+        model_type: Type of model to create ("mlp", "lstm", "transformer", "deeplob")
+        **kwargs: Model-specific parameters
+
+    Returns:
+        Instantiated model
+    """
+    model_type_lower = model_type.lower()
+
+    if model_type_lower not in MODEL_CLASS_REGISTRY:
+        raise ValueError(
+            f"Unknown model type: {model_type}. "
+            f"Available types: {list(MODEL_CLASS_REGISTRY.keys())}"
+        )
+
+    return MODEL_CLASS_REGISTRY[model_type_lower](**kwargs)

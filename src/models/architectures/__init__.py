@@ -6,6 +6,7 @@ from .base import FinancialTimeSeriesModel, ModelArchitectureConfig
 from .mlp import MLPConfig, MLPTimeSeriesModel
 from .lstm import LSTMConfig, LSTMTimeSeriesModel
 from .transformer import TransformerConfig, TransformerTimeSeriesModel
+from .lob import DeepLOBConfig, DeepLOBModel
 
 __all__ = [
     "FinancialTimeSeriesModel",
@@ -16,4 +17,6 @@ __all__ = [
     "LSTMTimeSeriesModel",
     "TransformerConfig",
     "TransformerTimeSeriesModel",
+    "DeepLOBConfig",
+    "DeepLOBModel",
 ]

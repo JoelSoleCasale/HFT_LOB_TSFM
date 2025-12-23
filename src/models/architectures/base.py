@@ -12,13 +12,16 @@ class ModelArchitectureConfig:
     """Base configuration for model architecture."""
 
     input_size: int
-    model_type: str  # "lstm", "transformer", "mlp"
+    model_type: str
     output_size: int = 3  # For classification: -1, 0, 1
     dropout: float = 0.2
 
     def __post_init__(self):
         """Validate model architecture configuration."""
-        valid_models = ["lstm", "transformer", "mlp"]
+        # Import here to avoid circular dependency
+        from ..factories import ARCHITECTURE_REGISTRY
+
+        valid_models = list(ARCHITECTURE_REGISTRY.keys())
         if self.model_type not in valid_models:
             raise ValueError(f"Model type must be one of {valid_models}, got {self.model_type}")
 
