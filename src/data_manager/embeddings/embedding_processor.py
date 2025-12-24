@@ -278,6 +278,9 @@ class EmbeddingProcessor:
             (pl.col("timestamp") >= hour_start_ns) & (pl.col("timestamp") < hour_end_ns)
         )
 
+        # Save it as Float32 to save space
+        embeddings_hour = embeddings_hour.cast({pl.Float64: pl.Float32})
+
         return embeddings_hour
 
     def _get_context_from_previous_day(
