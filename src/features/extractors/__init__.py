@@ -8,7 +8,7 @@ from .orderbook_features import (
     OrderbookImbalanceFeatures,
     AdvancedOrderbookFeatures,
 )
-from .raw_lob_features import DeepLOBFeatures
+from .raw_lob_features import DeepLOBFeatures, AxialLOBFeatures
 
 __all__ = [
     "MidPriceFeatures",
@@ -16,4 +16,5 @@ __all__ = [
     "OrderbookImbalanceFeatures",
     "AdvancedOrderbookFeatures",
     "DeepLOBFeatures",
+    "AxialLOBFeatures",
 ]

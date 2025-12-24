@@ -12,7 +12,7 @@ import time
 from tqdm import tqdm
 
 
-from models.model import create_model, FinancialTimeSeriesModel
+from models import FinancialTimeSeriesModel
 from models.utils import (
     get_device,
     save_model,
@@ -20,7 +20,7 @@ from models.utils import (
     count_parameters,
 )
 from models.config import ModelConfig
-from models.factories import create_optimizer, create_scheduler, create_criterion
+from models.factories import create_optimizer, create_scheduler, create_criterion, create_model
 from models.callbacks import (
     Callback,
     EarlyStopping,

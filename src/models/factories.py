@@ -17,6 +17,8 @@ from .architectures.lob import (
     CTABLModel,
     DeepLOBAttentionConfig,
     DeepLOBAttentionModel,
+    AxialLOBConfig,
+    AxialLOBModel,
 )
 
 
@@ -55,6 +57,7 @@ ARCHITECTURE_REGISTRY = {
     "deeplob": DeepLOBConfig,
     "ctabl": CTABLConfig,
     "deeplob_attention": DeepLOBAttentionConfig,
+    "axial_lob": AxialLOBConfig,
 }
 
 
@@ -66,6 +69,7 @@ MODEL_CLASS_REGISTRY = {
     "deeplob": DeepLOBModel,
     "ctabl": CTABLModel,
     "deeplob_attention": DeepLOBAttentionModel,
+    "axial_lob": AxialLOBModel,
 }
 
 
