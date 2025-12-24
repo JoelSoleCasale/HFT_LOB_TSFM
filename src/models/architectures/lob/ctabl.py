@@ -93,22 +93,29 @@ class TABLLayer(nn.Module):
         self.d1 = d1
         self.d2 = d2
 
-        # Projection weights
+        # Projection weights with scaled initialization for large D2
         self.W1 = nn.Parameter(torch.empty(D1, d1))
         self.W2 = nn.Parameter(torch.empty(D2, d2))
-        # Temporal attention matrix W (D2 x D2), initialized to constant 1/D2
-        self.W_attn = nn.Parameter(torch.full((D2, D2), 1.0 / D2))
-        # Scalar mixing parameter alpha, constrained to [0.0, 10.0] (clamped during forward)
-        self.alpha = nn.Parameter(torch.tensor(alpha_init))
+        # Temporal attention matrix W (D2 x D2), initialized with He scaling
+        self.W_attn = nn.Parameter(torch.empty(D2, D2))
+        # Scalar mixing parameter alpha in logit space (will be sigmoid'd to [0,1])
+        # Initialize to give alpha_init after sigmoid
+        alpha_logit = math.log(alpha_init / (1 - alpha_init)) if 0 < alpha_init < 1 else 0.0
+        self.alpha_logit = nn.Parameter(torch.tensor(alpha_logit))
         # Bias
         self.bias = nn.Parameter(torch.zeros(1, d1, d2))
 
         self.reset_parameters()
 
     def reset_parameters(self):
+        # He/Kaiming uniform initialization with fan-in scaling
         nn.init.kaiming_uniform_(self.W1, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W2, a=math.sqrt(5))
-        # W_attn already constant; bias zero
+        # Initialize attention matrix with small values scaled by D2
+        nn.init.normal_(self.W_attn, mean=0.0, std=1.0 / math.sqrt(self.D2))
+        # Set diagonal to 1/D2 for identity-like initialization
+        with torch.no_grad():
+            self.W_attn.diagonal().fill_(1.0 / self.D2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch, D1, D2)
@@ -120,7 +127,7 @@ class TABLLayer(nn.Module):
         # First mode projection -> (batch, d1, D2)
         x = torch.einsum("bjd,jk->bkd", x, self.W1)
 
-        # Enforce constant diagonal of attention matrix to 1/D2
+        # Enforce constant diagonal of attention matrix to 1/D2 for stability
         Id = torch.eye(self.D2, device=x.device, dtype=x.dtype)
         W = self.W_attn - self.W_attn * Id + Id * (1.0 / self.D2)
 
@@ -128,10 +135,11 @@ class TABLLayer(nn.Module):
         attn_scores = torch.einsum("bkd,dl->bkl", x, W)  # (batch, d1, D2)
         attention = F.softmax(attn_scores, dim=-1)
 
-        # Clamp alpha to [0.0, 10.0] similar to MinMax constraint
-        alpha = torch.clamp(self.alpha, min=0.0, max=10.0)
+        # Convert alpha_logit to alpha in [0, 1] using sigmoid
+        alpha = torch.sigmoid(self.alpha_logit)
 
-        # Mix attended features
+        # Mix attended features with alpha-weighted combination
+        # alpha closer to 1 means more original x, closer to 0 means more attended x
         x = alpha * x + (1.0 - alpha) * (x * attention)
 
         # Second mode projection -> (batch, d1, d2)
