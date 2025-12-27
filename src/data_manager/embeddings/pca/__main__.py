@@ -54,7 +54,8 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         Tuple of (parsed arguments, default config)
     """
     parser = argparse.ArgumentParser(
-        description="Precompute PCA models on embeddings for specified date ranges."
+        description="Precompute PCA models on embeddings for specified date ranges.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     pca_cfg = default_cfg["pca"]

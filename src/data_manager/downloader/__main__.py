@@ -27,7 +27,10 @@ def parse_args(default_cfg):
     """
     Parse command-line arguments, using defaults from the configuration.
     """
-    parser = argparse.ArgumentParser(description="Download high-frequency crypto data.")
+    parser = argparse.ArgumentParser(
+        description="Download high-frequency crypto data.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     # Set parser defaults from the loaded configuration
     parser.set_defaults(

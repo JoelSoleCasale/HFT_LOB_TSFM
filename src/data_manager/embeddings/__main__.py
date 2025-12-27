@@ -47,7 +47,8 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         Parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description="Generate embeddings from feature data with hourly granularity."
+        description="Generate embeddings from feature data with hourly granularity.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Set defaults from configuration

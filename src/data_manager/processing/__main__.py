@@ -26,7 +26,8 @@ def parse_args(default_cfg):
     Parse command-line arguments, using defaults from the configuration.
     """
     parser = argparse.ArgumentParser(
-        description="Precomputes incremental order book snapshots to the IncrementalOBSampler cache."
+        description="Precomputes incremental order book snapshots to the IncrementalOBSampler cache.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Set parser defaults from the loaded configuration
