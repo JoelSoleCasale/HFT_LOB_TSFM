@@ -10,6 +10,7 @@ from .calculators import (
     StrictTradeAccuracyCalculator,
     PerClassMetricsCalculator,
     ROCAUCCalculator,
+    CohenKappaCalculator,
 )
 from .plotters import (
     ConfusionMatrixPlotter,
@@ -43,6 +44,7 @@ def create_classification_suite(
     suite.add_calculator(AccuracyCalculator())
     suite.add_calculator(PrecisionRecallF1Calculator("macro"))
     suite.add_calculator(PrecisionRecallF1Calculator("weighted"))
+    suite.add_calculator(CohenKappaCalculator())
 
     if include_per_class:
         suite.add_calculator(PerClassMetricsCalculator(num_classes, class_names))

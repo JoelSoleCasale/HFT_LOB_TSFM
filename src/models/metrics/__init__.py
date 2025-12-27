@@ -26,6 +26,7 @@ from .calculators import (
     ConfusionMatrixCalculator,
     PerClassMetricsCalculator,
     ROCAUCCalculator,
+    CohenKappaCalculator,
     ExpectedReturnCalculator,
 )
 from .plotters import (
@@ -56,6 +57,7 @@ __all__ = [
     "ConfusionMatrixCalculator",
     "PerClassMetricsCalculator",
     "ROCAUCCalculator",
+    "CohenKappaCalculator",
     "ExpectedReturnCalculator",
     # Plotters
     "ConfusionMatrixPlotter",

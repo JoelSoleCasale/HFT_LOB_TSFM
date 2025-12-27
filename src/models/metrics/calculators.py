@@ -11,6 +11,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     confusion_matrix,
+    cohen_kappa_score,
 )
 from .core import MetricCalculator, MetricResult
 from typing import Literal
@@ -191,6 +192,24 @@ class ROCAUCCalculator(MetricCalculator):
             roc_auc = 0.0
 
         return MetricResult(name=self.name, value=roc_auc)
+
+
+class CohenKappaCalculator(MetricCalculator):
+    """Calculate Cohen's kappa coefficient.
+
+    Cohen's kappa measures inter-rater agreement for categorical items,
+    accounting for agreement occurring by chance. Useful for imbalanced datasets.
+    """
+
+    def __init__(self):
+        super().__init__("cohen_kappa")
+
+    def calculate(
+        self, predictions: torch.Tensor, targets: torch.Tensor, **kwargs
+    ) -> MetricResult:
+        pred_labels = torch.argmax(predictions, dim=1) if predictions.dim() > 1 else predictions
+        kappa = cohen_kappa_score(targets.cpu().numpy(), pred_labels.cpu().numpy())
+        return MetricResult(name=self.name, value=kappa)
 
 
 class ExpectedReturnCalculator(MetricCalculator):
