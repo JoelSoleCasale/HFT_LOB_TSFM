@@ -199,7 +199,7 @@ class WandbMetricsLogger(Callback):
         )
 
         # Create expected return calculators for each theta
-        from .metrics.calculators import ExpectedReturnCalculator
+        from .metrics.calculators import ExpectedReturnCalculator, MaxThetaCalculator
         import numpy as np
 
         self.expected_return_calculators = [
@@ -210,6 +210,9 @@ class WandbMetricsLogger(Callback):
             )
             for theta in self.theta_values
         ]
+
+        # Create max theta calculator
+        self.max_theta_calculator = MaxThetaCalculator(lambda_value=lambda_value)
 
         # Create expected return vs threshold plotter
         from .metrics.plotters import ExpectedReturnVsThresholdPlotter
@@ -281,6 +284,18 @@ class WandbMetricsLogger(Callback):
             except Exception as e:
                 logger.warning(f"Failed to compute expected returns: {e}")
 
+            # Compute max theta for non-negative expected return
+            try:
+                train_max_theta = self.max_theta_calculator.calculate(
+                    train_predictions, train_targets
+                )
+                train_metrics["train_max_theta"] = train_max_theta.value
+
+                val_max_theta = self.max_theta_calculator.calculate(val_predictions, val_targets)
+                val_metrics["val_max_theta"] = val_max_theta.value
+            except Exception as e:
+                logger.warning(f"Failed to compute max theta: {e}")
+
             # Combine and log
             combined_metrics = {**train_metrics, **val_metrics}
             self.wandb_logger.log_metrics(combined_metrics, step=epoch)
@@ -311,6 +326,10 @@ class WandbMetricsLogger(Callback):
                     theta = result.metadata["theta"]
                     metric_name = f"test_expected_return_theta_{theta:.4f}"
                     test_er_metrics[metric_name] = result.value
+
+            # Compute max theta on test set
+            test_max_theta = self.max_theta_calculator.calculate(y_pred, y_true)
+            test_er_metrics["test_max_theta"] = test_max_theta.value
 
             self.wandb_logger.log_metrics(test_er_metrics)
             logger.info(f"Test expected returns: {test_er_metrics}")

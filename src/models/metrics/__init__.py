@@ -28,6 +28,7 @@ from .calculators import (
     ROCAUCCalculator,
     CohenKappaCalculator,
     ExpectedReturnCalculator,
+    MaxThetaCalculator,
 )
 from .plotters import (
     ConfusionMatrixPlotter,
@@ -59,6 +60,7 @@ __all__ = [
     "ROCAUCCalculator",
     "CohenKappaCalculator",
     "ExpectedReturnCalculator",
+    "MaxThetaCalculator",
     # Plotters
     "ConfusionMatrixPlotter",
     "TradeAccuracyVsThresholdPlotter",

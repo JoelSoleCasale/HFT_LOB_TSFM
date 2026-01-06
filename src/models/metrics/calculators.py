@@ -325,7 +325,7 @@ class ExpectedReturnCalculator(MetricCalculator):
                     )
 
                 # Create metric name
-                metric_name = f"expected_return_lambda_{lambda_val:.4f}_theta_{theta_val:.4f}"
+                metric_name = f"expected_return_lambda-{lambda_val:.4f}_theta-{theta_val:.4f}"
 
                 results.append(
                     MetricResult(
@@ -340,3 +340,98 @@ class ExpectedReturnCalculator(MetricCalculator):
                 )
 
         return results
+
+
+class MaxThetaCalculator(MetricCalculator):
+    """Calculate maximum theta value where expected return remains non-negative.
+
+    Computes the maximum commission rate (theta) at which expected return is zero:
+        max_theta = λ * sum(directional_returns) / sum(commission_probs)
+
+    This represents the breakeven commission rate - any theta below this value
+    yields positive expected return given the model's predictions.
+    """
+
+    def __init__(self, lambda_value: float = 1.0):
+        """
+        Initialize max theta calculator.
+
+        Args:
+            lambda_value: Horizontal barrier distance for expected return calculation.
+        """
+        super().__init__("max_theta")
+        self.lambda_value = lambda_value
+
+        # Define A₁ matrix: encodes directional returns (same as ExpectedReturnCalculator)
+        self.A1 = np.array(
+            [
+                [1, 0, -1],  # True: -1, Pred: -1 -> +1, 0 -> 0, +1 -> -1
+                [0, 0, 0],  # True:  0, always 0 return
+                [-1, 0, 1],  # True: +1, Pred: -1 -> -1, 0 -> 0, +1 -> +1
+            ]
+        )
+
+        # Define A₂ matrix: encodes commission (sum of non-neutral probs)
+        self.A2 = np.array(
+            [
+                [1, 0, 1],
+                [1, 0, 1],
+                [1, 0, 1],
+            ]
+        )
+
+    @property
+    def requires_probabilities(self) -> bool:
+        return True
+
+    def calculate(
+        self, predictions: torch.Tensor, targets: torch.Tensor, are_logits: bool = True, **kwargs
+    ) -> MetricResult:
+        """
+        Calculate maximum theta for non-negative expected return.
+
+        Args:
+            predictions: Model predictions as logits or probabilities (N x 3)
+            targets: True labels (N,) with values {0, 1, 2} representing {-1, 0, 1}
+            are_logits: Whether predictions are logits (True) or probabilities (False)
+
+        Returns:
+            MetricResult with max_theta value (NaN if total commission_probs is zero)
+        """
+        # Get probabilities (N x 3)
+        if are_logits and predictions.dim() > 1:
+            probs = torch.softmax(predictions, dim=1).cpu().numpy()
+        else:
+            probs = predictions.cpu().numpy()
+
+        target_np = targets.cpu().numpy()
+        N = len(target_np)
+
+        # Create one-hot encoded true labels (N x 3)
+        y_onehot = np.zeros((N, 3))
+        y_onehot[np.arange(N), target_np] = 1
+
+        # Compute y^T A₁ ŷ for all samples (vectorized)
+        directional_returns = np.einsum("ni,ij,nj->n", y_onehot, self.A1, probs)
+
+        # Compute y^T A₂ ŷ for all samples (vectorized)
+        commission_probs = np.einsum("ni,ij,nj->n", y_onehot, self.A2, probs)
+
+        # Compute max_theta = λ * sum(directional_returns) / sum(commission_probs)
+        total_directional_returns = np.sum(directional_returns)
+        total_commission_probs = np.sum(commission_probs)
+
+        if total_commission_probs == 0:
+            max_theta = np.nan
+        else:
+            max_theta = self.lambda_value * total_directional_returns / total_commission_probs
+
+        return MetricResult(
+            name=self.name,
+            value=max_theta,
+            metadata={
+                "lambda": self.lambda_value,
+                "total_directional_returns": total_directional_returns,
+                "total_commission_probs": total_commission_probs,
+            },
+        )
