@@ -1,0 +1,21 @@
+model:
+  type: "deeplob"
+  sequence_length: 100
+  conv_filters: 32
+  inception_filters: 64
+  lstm_hidden_size: 64
+  dropout: 0.1
+
+data:
+  source: "orderbook"
+  levels: 10
+  pca_components: null # Disable PCA iteration if any
+
+  features:
+    - name: "deeplob_features"
+      params:
+        levels: 10
+
+logging:
+  project_name: "deeplob_training"
+  experiment_name_prefix: "deeplob"

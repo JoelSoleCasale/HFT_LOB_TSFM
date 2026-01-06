@@ -10,7 +10,7 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  device: "cpu"
+  device: "cuda"
   # Lists here trigger cross product (e.g. [256, 512])
   pca_components: [256, 512, 1024]
 
@@ -24,7 +24,7 @@ labels:
 training:
   learning_rate: 0.001
   num_epochs: 100
-  early_stopping_patience: 5
+  early_stopping_patience: 10
   optimizer: "adamw"
   scheduler: "cosine"
   loss_function: "focal"
@@ -33,8 +33,6 @@ training:
     gamma: 2.0
 
 logging:
-  project_name: "E_pca_mlp_training"
-  experiment_name_prefix: "mlp"
   wandb_enabled: true
   log_confusion_matrix: true
   log_trade_accuracy_vs_threshold: true

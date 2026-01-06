@@ -5,3 +5,10 @@ model:
   hidden_sizes: ["", "64", "128", "128,64", "64,32"]
   dropout: 0.2
   sequence_length: 1
+
+data:
+  device: "cpu"
+
+logging:
+  project_name: "E_pca_mlp_training"
+  experiment_name_prefix: "mlp"

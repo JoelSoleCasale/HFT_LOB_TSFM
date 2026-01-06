@@ -7,6 +7,7 @@ from models import (
     LoggingConfig,
     train_model,
 )
+from models.architectures.lob import DeepLOBConfig
 from model_training.data_loader import prepare_data
 from model_training.config import parse_list_arg
 from loguru import logger
@@ -16,7 +17,8 @@ def get_architecture_config(
     model_type: str, params: Dict[str, Any], input_size: int, output_size: int
 ) -> Any:
     """Factory for architecture config."""
-    if model_type.lower() == "mlp":
+    model_type = model_type.lower()
+    if model_type == "mlp":
         hidden_sizes = parse_list_arg(params.get("hidden_sizes", [64]), type=int)
         return MLPConfig(
             input_size=input_size,
@@ -24,6 +26,15 @@ def get_architecture_config(
             hidden_sizes=hidden_sizes,
             dropout=params.get("dropout", 0.0),
             sequence_length=params.get("sequence_length", 1),
+        )
+    elif model_type == "deeplob":
+        return DeepLOBConfig(
+            input_size=input_size,
+            output_size=output_size,
+            conv_filters=params.get("conv_filters", 16),
+            inception_filters=params.get("inception_filters", 32),
+            lstm_hidden_size=params.get("lstm_hidden_size", 32),
+            dropout=params.get("dropout", 0.1),
         )
     # Add other models here
     raise ValueError(f"Unknown model type: {model_type}")
@@ -94,7 +105,10 @@ def run_experiment(config: Dict[str, Any]):
     # Add key parameters to experiment name for clarity
     if "hidden_sizes" in model_conf:
         exp_name += f"_mlp{model_conf['hidden_sizes']}"
-    if "pca_components" in data_conf:
+    if model_conf.get("type") == "deeplob":
+        exp_name += "_deeplob"
+
+    if "pca_components" in data_conf and data_conf["pca_components"]:
         exp_name += f"_pca{data_conf['pca_components']}"
 
     lc = LoggingConfig(
