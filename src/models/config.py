@@ -92,6 +92,7 @@ class ModelConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     architecture: ModelArchitectureConfig = field(default_factory=LSTMConfig)
+    other: dict[str, object] = field(default_factory=dict)
 
     # Device configuration
     device: str = "auto"
@@ -117,6 +118,7 @@ class ModelConfig:
             "training": self.training.__dict__,
             "logging": self.logging.__dict__,
             "architecture": self.architecture.__dict__,
+            "other": self.other,
             "device": self.device,
             "seed": self.seed,
         }
@@ -134,12 +136,14 @@ class ModelConfig:
         arch_dict = config_dict.get("architecture", {})
         model_type = arch_dict.get("model_type", "lstm")
         architecture = create_architecture_config(model_type, arch_dict)
+        other = config_dict.get("other", {})
 
         return cls(
             data=data_config,
             training=training_config,
             logging=logging_config,
             architecture=architecture,
+            other=other,
             device=config_dict.get("device", "auto"),
             seed=config_dict.get("seed", 42),
         )

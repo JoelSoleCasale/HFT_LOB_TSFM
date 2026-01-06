@@ -195,6 +195,7 @@ class WandbMetricsLogger(Callback):
             num_classes=num_classes,
             class_names=self.class_names,
             trade_threshold=0.5,
+            include_per_class=False,
         )
 
         # Create expected return calculators for each theta
@@ -293,8 +294,11 @@ class WandbMetricsLogger(Callback):
         # Compute all metrics
         try:
             test_metrics = self.metrics_suite.compute_all(y_pred, y_true)
-            self.wandb_logger.log_metrics(test_metrics)
-            logger.info(f"Final test metrics: {test_metrics}")
+            new_test_metrics = {}
+            for key, value in test_metrics.items():
+                new_test_metrics[f"test_{key}"] = value
+            self.wandb_logger.log_metrics(new_test_metrics)
+            logger.info(f"Final test metrics: {new_test_metrics}")
         except Exception as e:
             logger.warning(f"Failed to compute final metrics: {e}")
 

@@ -17,7 +17,6 @@ Architecture:
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from typing import Literal
 
 from ..base import ModelArchitectureConfig, FinancialTimeSeriesModel
 
@@ -45,11 +44,7 @@ class DeepLOBConfig(ModelArchitectureConfig):
     dropout: float = 0.2
 
     # Activation function for conv layers
-    activation: Literal["leaky_relu", "tanh"] = "leaky_relu"
     leaky_relu_slope: float = 0.01
-
-    # Batch normalization
-    use_batch_norm: bool = True
 
 
 class DeepLOBModel(FinancialTimeSeriesModel):
@@ -78,9 +73,7 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         inception_filters: int = 64,
         lstm_hidden_size: int = 64,
         dropout: float = 0.2,
-        activation: str = "leaky_relu",
         leaky_relu_slope: float = 0.01,
-        use_batch_norm: bool = True,
     ):
         """
         Initialize DeepLOB model.
@@ -101,6 +94,7 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         self.conv_filters = conv_filters
         self.inception_filters = inception_filters
         self.lstm_hidden_size = lstm_hidden_size
+        self.dropout = dropout
 
         # First convolutional block: LeakyReLU activation
         # Input: (batch, 1, T, 40) -> (batch, 32, T, 20)
@@ -206,6 +200,11 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         # After concatenating 3 inception paths: 64*3 = 192 channels
         inception_output_size = inception_filters * 3
 
+        # Dropout layers for regularization
+        self.dropout_conv = nn.Dropout2d(p=dropout)  # 2D dropout for conv features
+        self.dropout_inception = nn.Dropout2d(p=dropout)  # 2D dropout after inception
+        self.dropout_lstm = nn.Dropout(p=dropout)  # 1D dropout after LSTM
+
         # LSTM layer
         self.lstm = nn.LSTM(
             input_size=inception_output_size,
@@ -248,6 +247,7 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
+        x = self.dropout_conv(x)  # Dropout after final conv block
 
         # Inception module - three parallel paths
         x_inp1 = self.inp1(x)
@@ -256,6 +256,7 @@ class DeepLOBModel(FinancialTimeSeriesModel):
 
         # Concatenate along channel dimension
         x = torch.cat((x_inp1, x_inp2, x_inp3), dim=1)
+        x = self.dropout_inception(x)  # Dropout after inception module
 
         # Reshape for LSTM: (batch, time, features)
         x = x.permute(0, 2, 1, 3)
@@ -264,6 +265,7 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         # LSTM layer
         x, _ = self.lstm(x, (h0, c0))
         x = x[:, -1, :]
+        x = self.dropout_lstm(x)  # Dropout after LSTM
 
         # Output layer
         x = self.fc1(x)

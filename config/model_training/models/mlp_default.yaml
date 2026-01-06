@@ -1,0 +1,7 @@
+model:
+  type: "mlp"
+  # String "64,32" means list [64, 32].
+  # Use a YAML list of strings ["64", "128,64"] for grid search.
+  hidden_sizes: ["", "64", "128", "128,64", "64,32"]
+  dropout: 0.2
+  sequence_length: 1

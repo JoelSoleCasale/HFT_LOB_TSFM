@@ -91,7 +91,9 @@ class ExpectedReturnLoss(nn.Module):
         # Compute expected return: y^T A ŷ for each sample
         # A already contains λ*A₁ - θ*A₂ - ε*A₃, so this is a single operation
         # Shape: (N, 3) @ (3, 3) @ (N, 3).T → (N,)
-        expected_return = torch.einsum("ni,ij,nj->n", y_onehot, self.A, probs)
+        expected_return = torch.einsum(
+            "ni,ij,nj->n", y_onehot, self.A.to(predictions.device), probs
+        )
 
         # Loss = -expected_return (we want to maximize ER, so minimize -ER)
         loss = -expected_return
