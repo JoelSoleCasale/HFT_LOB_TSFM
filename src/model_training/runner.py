@@ -7,7 +7,7 @@ from models import (
     LoggingConfig,
     train_model,
 )
-from models.architectures.lob import DeepLOBConfig
+from models.architectures.lob import DeepLOBConfig, CTABLConfig
 from model_training.data_loader import prepare_data
 from model_training.config import parse_list_arg
 from loguru import logger
@@ -34,6 +34,17 @@ def get_architecture_config(
             conv_filters=params.get("conv_filters", 16),
             inception_filters=params.get("inception_filters", 32),
             lstm_hidden_size=params.get("lstm_hidden_size", 32),
+            dropout=params.get("dropout", 0.1),
+        )
+    elif model_type == "ctabl":
+        return CTABLConfig(
+            input_size=input_size,
+            output_size=output_size,
+            time_steps=params.get("sequence_length", 10),
+            # Default dims as per paper/example
+            hidden_dims=((120, 5),),
+            output_dims=(3, 1),
+            activation=params.get("activation", "relu"),
             dropout=params.get("dropout", 0.1),
         )
     # Add other models here
@@ -107,6 +118,8 @@ def run_experiment(config: Dict[str, Any]):
         exp_name += f"_mlp{model_conf['hidden_sizes']}"
     if model_conf.get("type") == "deeplob":
         exp_name += "_deeplob"
+    if model_conf.get("type") == "ctabl":
+        exp_name += "_ctabl"
 
     if "pca_components" in data_conf and data_conf["pca_components"]:
         exp_name += f"_pca{data_conf['pca_components']}"
