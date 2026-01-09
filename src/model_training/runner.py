@@ -7,7 +7,7 @@ from models import (
     LoggingConfig,
     train_model,
 )
-from models.architectures.lob import DeepLOBConfig, CTABLConfig
+from models.architectures.lob import DeepLOBConfig, CTABLConfig, DeepLOBAttentionConfig
 from model_training.data_loader import prepare_data
 from model_training.config import parse_list_arg
 from loguru import logger
@@ -46,6 +46,18 @@ def get_architecture_config(
             output_dims=(3, 1),
             activation=params.get("activation", "relu"),
             dropout=params.get("dropout", 0.1),
+        )
+    elif model_type == "deeplob_attention":
+        return DeepLOBAttentionConfig(
+            input_size=input_size,
+            output_size=output_size,
+            conv_filters=params.get("conv_filters", 32),
+            inception_filters=params.get("inception_filters", 64),
+            lstm_hidden_size=params.get("lstm_hidden_size", 64),
+            dropout=params.get("dropout", 0.0),
+            activation=params.get("activation", "leaky_relu"),
+            leaky_relu_slope=params.get("leaky_relu_slope", 0.01),
+            use_batch_norm=params.get("use_batch_norm", True),
         )
     # Add other models here
     raise ValueError(f"Unknown model type: {model_type}")
@@ -120,6 +132,8 @@ def run_experiment(config: Dict[str, Any]):
         exp_name += "_deeplob"
     if model_conf.get("type") == "ctabl":
         exp_name += "_ctabl"
+    if model_conf.get("type") == "deeplob_attention":
+        exp_name += "_deeplob_attention"
 
     if "pca_components" in data_conf and data_conf["pca_components"]:
         exp_name += f"_pca{data_conf['pca_components']}"

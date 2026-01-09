@@ -345,7 +345,7 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(data_config.get("levels", 10))
-        .sample_by_time(time_delta=100_000_000, interpolate=True)
+        .sample_by_time(time_delta=data_config.get("time_delta", 100_000_000), interpolate=True)
     )
 
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
