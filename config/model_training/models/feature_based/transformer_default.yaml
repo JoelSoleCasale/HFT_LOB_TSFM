@@ -1,0 +1,23 @@
+model:
+  type: "transformer"
+  sequence_length: 100
+  d_model: 64
+  nhead: 8
+  num_layers: 2
+  dropout: 0.2
+  dim_feedforward: 256
+  activation: "relu"
+  learned_positional_encoding: true
+
+data:
+  source: "orderbook"
+  levels: 5
+
+  features:
+    - name: "advanced_orderbook"
+
+training:
+  mixed_precision: true
+
+logging:
+  experiment_name_prefix: "transformer"

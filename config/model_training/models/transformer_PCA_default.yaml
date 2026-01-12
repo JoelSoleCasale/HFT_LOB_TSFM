@@ -1,0 +1,24 @@
+data:
+  device: "cuda"
+  source: "embeddings"
+  embedding_code: "chronos2-base_ctx512_seqlast_s5"
+  pca_components: [256] #, 512, 1024]
+  stride: 1
+
+model:
+  type: "transformer"
+  sequence_length: 100
+  d_model: 64
+  nhead: 4
+  num_layers: 2
+  dropout: 0.2
+  dim_feedforward: 256
+  activation: "relu"
+  learned_positional_encoding: true
+
+training:
+  mixed_precision: true
+
+logging:
+  project_name: "final_experiments_test"
+  experiment_name_prefix: "large_transformer_PCA"
