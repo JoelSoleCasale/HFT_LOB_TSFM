@@ -1,0 +1,24 @@
+model:
+  type: "tlob"
+  sequence_length: 100
+  hidden_dim: 16 # default: 64
+  num_layers: 2
+  num_heads: 4
+  is_sin_emb: true
+  dropout: 0.1
+
+data:
+  source: "orderbook"
+  levels: 10
+
+  features:
+    - name: "tlob_features"
+      params:
+        levels: 10
+
+training:
+  mixed_precision: true
+  learning_rate: 0.0001
+
+logging:
+  experiment_name_prefix: "tlob"
