@@ -7,7 +7,8 @@ from models import (
     LoggingConfig,
     train_model,
 )
-from models.architectures.lob import DeepLOBConfig, CTABLConfig, DeepLOBAttentionConfig
+from models.architectures.lob import DeepLOBConfig, CTABLConfig, DeepLOBAttentionConfig, TLOBConfig
+from models import LSTMConfig, TransformerConfig
 from model_training.data_loader import prepare_data
 from model_training.config import parse_list_arg
 from loguru import logger
@@ -59,7 +60,40 @@ def get_architecture_config(
             leaky_relu_slope=params.get("leaky_relu_slope", 0.01),
             use_batch_norm=params.get("use_batch_norm", True),
         )
-    # Add other models here
+    elif model_type == "tlob":
+        return TLOBConfig(
+            input_size=input_size,
+            output_size=output_size,
+            hidden_dim=params.get("hidden_dim", 64),
+            num_layers=params.get("num_layers", 2),
+            num_heads=params.get("num_heads", 4),
+            is_sin_emb=params.get("is_sin_emb", True),
+            dropout=params.get("dropout", 0.0),
+            sequence_length=params.get("sequence_length", 100),
+        )
+    elif model_type == "lstm":
+        return LSTMConfig(
+            input_size=input_size,
+            hidden_size=params.get("hidden_size", 64),
+            num_layers=params.get("num_layers", 2),
+            bidirectional=params.get("bidirectional", False),
+            attention=params.get("attention", False),
+            dropout=params.get("dropout", 0.2),
+        )
+    elif model_type == "transformer":
+        return TransformerConfig(
+            input_size=input_size,
+            d_model=params.get("d_model", 64),
+            nhead=params.get("nhead", 8),
+            num_layers=params.get("num_layers", 2),
+            output_size=output_size,
+            dropout=params.get("dropout", 0.2),
+            dim_feedforward=params.get("dim_feedforward", 256),
+            activation=params.get("activation", "relu"),
+            sequence_length=params.get("sequence_length", 100),
+            learned_positional_encoding=params.get("learned_positional_encoding", False),
+        )
+
     raise ValueError(f"Unknown model type: {model_type}")
 
 
@@ -134,6 +168,8 @@ def run_experiment(config: Dict[str, Any]):
         exp_name += "_ctabl"
     if model_conf.get("type") == "deeplob_attention":
         exp_name += "_deeplob_attention"
+    if model_conf.get("type") == "tlob":
+        exp_name += "_tlob"
 
     if "pca_components" in data_conf and data_conf["pca_components"]:
         exp_name += f"_pca{data_conf['pca_components']}"
