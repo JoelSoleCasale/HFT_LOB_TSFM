@@ -1,9 +1,8 @@
-exchange:
-  - binance_futures
-  - binance_spot
 symbol:
   - BTCUSDT
-  - ETHUSDT
+  - LTCUSDT
+exchange:
+  - binance_futures
 levels: 20
 force_regenerate: false
 dates:

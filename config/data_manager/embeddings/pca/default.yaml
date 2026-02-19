@@ -11,11 +11,10 @@ exchanges:
   - binance_futures
 
 symbols:
-  - BTCUSDT
+  - LTCUSDT
 
 embedding_codes:
   - chronos2-base_ctx512_seqlast_s5
-  - chronos2-base_ctx512_seqmean_s5
 
 # Date range for PCA training
 dates:
