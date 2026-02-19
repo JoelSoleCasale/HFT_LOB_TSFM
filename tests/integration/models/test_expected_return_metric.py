@@ -433,7 +433,7 @@ class TestExpectedReturnCalculator:
         assert result.metadata["aggregate"] == aggregate_method
 
         # Check metric name format
-        expected_name = f"expected_return_lambda_{lambda_val:.4f}_theta_{theta_val:.4f}"
+        expected_name = f"expected_return_lambda-{lambda_val:.4f}_theta-{theta_val:.4f}"
         assert result.name == expected_name
 
 

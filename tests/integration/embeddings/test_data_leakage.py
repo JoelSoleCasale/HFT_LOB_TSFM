@@ -322,11 +322,11 @@ class TestChronosDataLeakage(BaseDataLeakageTest):
             "disable_tqdm": True,
         }
 
-    def get_generator(self, generator_config) -> BaseEmbeddingGenerator:
+    def get_generator(self) -> BaseEmbeddingGenerator:
         """Get Chronos generator for testing."""
         from embeddings.registry import EmbeddingGeneratorRegistry
 
-        return EmbeddingGeneratorRegistry.create("chronos", config=generator_config)
+        return EmbeddingGeneratorRegistry.create("chronos", config=self._generator_config)
 
     def test_no_data_leakage(self, generator_config):
         """Test that Chronos embeddings do not leak future information."""
