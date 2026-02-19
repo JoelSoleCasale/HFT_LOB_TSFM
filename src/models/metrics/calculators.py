@@ -273,7 +273,12 @@ class ExpectedReturnCalculator(MetricCalculator):
         return True
 
     def calculate(
-        self, predictions: torch.Tensor, targets: torch.Tensor, are_logits: bool = True, **kwargs
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+        are_logits: bool = True,
+        binarize: bool = False,
+        **kwargs,
     ) -> list[MetricResult]:
         """
         Calculate expected return for all combinations of lambda and theta.
@@ -282,6 +287,7 @@ class ExpectedReturnCalculator(MetricCalculator):
             predictions: Model predictions as logits or probabilities (N x 3)
             targets: True labels (N,) with values {0, 1, 2} representing {-1, 0, 1}
             are_logits: Whether predictions are logits (True) or probabilities (False)
+            binarize: Whether to binarize predictions (i.e take argmax) before calculation
 
         Returns:
             List of MetricResult objects, one for each (lambda, theta) combination
@@ -291,6 +297,12 @@ class ExpectedReturnCalculator(MetricCalculator):
             probs = torch.softmax(predictions, dim=1).cpu().numpy()
         else:
             probs = predictions.cpu().numpy()
+
+        if binarize:
+            # Binarize predictions to one-hot
+            pred_labels = np.argmax(probs, axis=1)
+            probs = np.zeros_like(probs)
+            probs[np.arange(len(pred_labels)), pred_labels] = 1.0
 
         target_np = targets.cpu().numpy()
         N = len(target_np)
@@ -385,7 +397,12 @@ class MaxThetaCalculator(MetricCalculator):
         return True
 
     def calculate(
-        self, predictions: torch.Tensor, targets: torch.Tensor, are_logits: bool = True, **kwargs
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+        are_logits: bool = True,
+        binarized: bool = False,
+        **kwargs,
     ) -> MetricResult:
         """
         Calculate maximum theta for non-negative expected return.
@@ -394,6 +411,7 @@ class MaxThetaCalculator(MetricCalculator):
             predictions: Model predictions as logits or probabilities (N x 3)
             targets: True labels (N,) with values {0, 1, 2} representing {-1, 0, 1}
             are_logits: Whether predictions are logits (True) or probabilities (False)
+            binarized: Whether to binarize predictions (i.e take argmax) before calculation
 
         Returns:
             MetricResult with max_theta value (NaN if total commission_probs is zero)
@@ -403,6 +421,12 @@ class MaxThetaCalculator(MetricCalculator):
             probs = torch.softmax(predictions, dim=1).cpu().numpy()
         else:
             probs = predictions.cpu().numpy()
+
+        if binarized:
+            # Binarize predictions to one-hot
+            pred_labels = np.argmax(probs, axis=1)
+            probs = np.zeros_like(probs)
+            probs[np.arange(len(pred_labels)), pred_labels] = 1.0
 
         target_np = targets.cpu().numpy()
         N = len(target_np)

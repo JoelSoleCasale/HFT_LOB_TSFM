@@ -364,6 +364,7 @@ class ExpectedReturnVsThresholdPlotter(MetricPlotter):
         predictions: torch.Tensor,
         targets: torch.Tensor,
         aggregation_method: Literal["mean", "sum"] = "sum",
+        display_title: bool = False,
         **kwargs,
     ) -> plt.Figure:
         from .calculators import ExpectedReturnCalculator
@@ -458,11 +459,12 @@ class ExpectedReturnVsThresholdPlotter(MetricPlotter):
 
         ax1.set_xlabel("Confidence Threshold", fontsize=12)
         ax1.set_ylabel("Expected Return", fontsize=12)
-        ax1.set_title(
-            f"Expected Return vs Confidence Threshold (λ = {self.lambda_value*1e4:.1f}bps)",
-            fontsize=14,
-            fontweight="bold",
-        )
+        if display_title:
+            ax1.set_title(
+                f"Expected Return vs Confidence Threshold (λ = {self.lambda_value*1e4:.1f}bps)",
+                fontsize=14,
+                fontweight="bold",
+            )
         ax1.grid(True, alpha=0.3)
         ax1.set_xlim(0, 1)
         ax1.legend(loc="best", fontsize=10)
