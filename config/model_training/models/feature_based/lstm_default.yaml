@@ -2,7 +2,7 @@ model:
   type: "lstm"
   sequence_length: 100
   hidden_size: 64
-  num_layers: 2
+  num_layers: 1
   bidirectional: [False, True]
   attention: False
   dropout: 0.2

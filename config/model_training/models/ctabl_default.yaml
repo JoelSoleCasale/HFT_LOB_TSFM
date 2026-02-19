@@ -7,7 +7,6 @@ model:
 data:
   source: "orderbook"
   levels: 10
-  pca_components: null # Disable PCA iteration if any
 
   features:
     - name: "ctabl_features"
@@ -15,5 +14,4 @@ data:
         levels: 10
 
 logging:
-  project_name: "ctabl_training"
-  experiment_name_prefix: "ctabl"
+  experiment_name_prefix: "c_ctabl"

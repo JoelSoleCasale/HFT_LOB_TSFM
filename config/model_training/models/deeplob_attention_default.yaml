@@ -1,9 +1,9 @@
 model:
   type: "deeplob_attention"
   sequence_length: 100
-  conv_filters: 32
-  inception_filters: 64
-  lstm_hidden_size: 64
+  conv_filters: 16
+  inception_filters: 32
+  lstm_hidden_size: 32
   dropout: 0.1
   use_batch_norm: true
   activation: "leaky_relu"
@@ -19,5 +19,4 @@ data:
         levels: 10
 
 logging:
-  project_name: "deeplob_attn_training"
   experiment_name_prefix: "deeplob_attn"

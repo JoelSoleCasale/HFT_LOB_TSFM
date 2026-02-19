@@ -1,30 +1,27 @@
 data:
   first_date: ["2025-07-01","2025-07-02","2025-07-03","2025-07-04","2025-07-05","2025-07-06","2025-07-07","2025-07-08","2025-07-09","2025-07-10"]
   n_days: 10
-  max_total_samples: 100000000
-  embedding_code: "chronos2-base_ctx512_seqlast_s5"
+  max_total_samples: 1000000000
   exchange: "binance_futures"
-  symbol: "BTCUSDT"
+  symbol: "LTCUSDT"
   batch_size: 512
   stride: 5
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
   device: "cuda"
-  # Lists here trigger cross product (e.g. [256, 512])
-  pca_components: [256, 512, 1024]
 
 paths:
   embeddings_dir: "/scratch/PI/palomar/joel_sole/embedding_data"
 
 labels:
-  horizon: [100, 200, 300, 500, 1000]
-  threshold: 2e-4
+  horizon: [200, 1000]
+  threshold: [2e-4, 4e-4]
 
 training:
   learning_rate: 0.001
-  num_epochs: 100
-  early_stopping_patience: 10
+  num_epochs: 25
+  early_stopping_patience: 5
   optimizer: "adamw"
   scheduler: "cosine"
   loss_function: "focal"
@@ -33,7 +30,8 @@ training:
     gamma: 2.0
 
 logging:
+  project_name: "final_experiments_LTCUSDT"
   wandb_enabled: true
   log_confusion_matrix: true
   log_trade_accuracy_vs_threshold: true
-  theta_values: "0.0,1e-4,4e-4"
+  theta_values: "0.0,1e-5,1e-4"

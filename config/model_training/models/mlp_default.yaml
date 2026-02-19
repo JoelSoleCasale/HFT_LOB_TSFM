@@ -1,14 +1,23 @@
+data:
+  device: "cuda"
+  source: "embeddings"
+  embedding_code: "chronos2-base_ctx512_seqlast_s5"
+  pca_components: 512
+  stride: 1
+
+training:
+  loss_function: "focal"
+  loss_params:
+    gamma: 2.0
+  learning_rate: 0.001
+
 model:
   type: "mlp"
   # String "64,32" means list [64, 32].
   # Use a YAML list of strings ["64", "128,64"] for grid search.
-  hidden_sizes: ["", "64", "128", "128,64", "64,32"]
-  dropout: 0.2
+  hidden_sizes: ""
+  dropout: 0.0
   sequence_length: 1
 
-data:
-  device: "cpu"
-
 logging:
-  project_name: "E_pca_mlp_training"
   experiment_name_prefix: "mlp"
