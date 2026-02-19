@@ -95,7 +95,7 @@ def load_model(
     return model, config, metadata
 
 
-def set_seed(seed: int = 42) -> None:
+def set_seed(seed: int = None) -> None:
     """
     Set random seed for reproducibility.
 
@@ -104,6 +104,10 @@ def set_seed(seed: int = 42) -> None:
     """
     import random
     import numpy as np
+
+    if seed is None:
+        logger.info("No seed provided, skipping seed setting.")
+        return
 
     random.seed(seed)
     np.random.seed(seed)

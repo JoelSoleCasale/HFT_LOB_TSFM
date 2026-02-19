@@ -62,7 +62,7 @@ class LoggingConfig:
 
     project_name: str = "financial-models"
     experiment_name: str | None = None
-    log_file: str = str(ROOT_DIR / "logs/training.log")
+    log_file: str = str(ROOT_DIR / "logs/model_training.log")
     model_save_path: str = str(ROOT_DIR / "model_checkpoint/trained_model.pth")
     checkpoint_dir: str = str(ROOT_DIR / "model_checkpoint/checkpoints")
 
@@ -96,7 +96,7 @@ class ModelConfig:
 
     # Device configuration
     device: str = "auto"
-    seed: int = 42
+    seed: int = None
 
     def __post_init__(self):
         """Validate the complete configuration."""
@@ -145,7 +145,7 @@ class ModelConfig:
             architecture=architecture,
             other=other,
             device=config_dict.get("device", "auto"),
-            seed=config_dict.get("seed", 42),
+            seed=config_dict.get("seed"),
         )
 
     @classmethod

@@ -196,7 +196,7 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
         "embeddings_dir", "/scratch/PI/palomar/joel_sole/embedding_data"
     )
     exchange = data_config.get("exchange", "binance_futures")
-    symbol = data_config.get("symbol", "BTCUSDT")
+    symbol = data_config["symbol"]
 
     # 1. Load Embeddings
     logger.info(f"Loading embeddings: {embedding_code}...")
@@ -330,7 +330,7 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     end_date = first_date + timedelta(days=n_days - 1)
 
     exchange = data_config.get("exchange", "binance_futures")
-    symbol = data_config.get("symbol", "BTCUSDT")
+    symbol = data_config["symbol"]
 
     # 1. Load Orderbook
     logger.info("Loading orderbook data for features and labels...")

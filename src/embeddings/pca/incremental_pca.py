@@ -41,7 +41,11 @@ class IncrementalPCAProcessor:
         self.is_fitted = False
 
     def fit(
-        self, data: pl.LazyFrame, feature_columns: list[str] | None = None, verbose: bool = True
+        self,
+        data: pl.LazyFrame,
+        feature_columns: list[str] | None = None,
+        stride: int = 5,
+        verbose: bool = True,
     ) -> "IncrementalPCAProcessor":
         """
         Fit incremental PCA on all provided data.
@@ -49,6 +53,7 @@ class IncrementalPCAProcessor:
         Args:
             data: LazyFrame containing features and timestamp column
             feature_columns: List of feature column names. If None, uses all columns except 'timestamp'
+            stride: Stride value for gather_every to reduce memory usage
             verbose: Whether to show progress bar
 
         Returns:
@@ -85,7 +90,7 @@ class IncrementalPCAProcessor:
         for chunk in iterator:
             # Collect LazyFrame to DataFrame if needed
             if isinstance(chunk, pl.LazyFrame):
-                chunk = chunk.collect(engine="streaming")
+                chunk = chunk.collect(engine="streaming").gather_every(stride)
 
             # Load chunk and extract features
             logger.debug(f"Processing chunk with {chunk.height} rows for PCA fitting...")
