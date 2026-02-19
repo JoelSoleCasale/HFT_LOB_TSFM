@@ -42,12 +42,13 @@ class MLPTimeSeriesModel(FinancialTimeSeriesModel):
         self.hidden_sizes = hidden_sizes
         self.dropout = dropout
 
-        # Flatten input
-        flattened_size = input_size * sequence_length
+        # Learnable weights for linear combination across sequence length
+        # This will produce a weighted combination of time steps
+        self.sequence_weights = nn.Linear(sequence_length, 1, bias=False)
 
-        # Build layers
+        # Build MLP layers on the reduced representation
         layers = []
-        prev_size = flattened_size
+        prev_size = input_size
 
         for hidden_size in hidden_sizes:
             layers.extend(
@@ -85,8 +86,17 @@ class MLPTimeSeriesModel(FinancialTimeSeriesModel):
         Returns:
             Output tensor of shape (batch_size, output_size)
         """
-        # Flatten the sequence
-        batch_size = x.size(0)
-        x = x.view(batch_size, -1)
+        # Compute learnable linear combination across sequence length
+        # x shape: (batch_size, sequence_length, input_size)
+        # Transpose to (batch_size, input_size, sequence_length)
+        x = x.transpose(1, 2)
 
+        # Apply learnable weights to combine sequence dimension
+        # Result shape: (batch_size, input_size, 1)
+        x = self.sequence_weights(x)
+
+        # Squeeze to (batch_size, input_size)
+        x = x.squeeze(-1)
+
+        # Pass through MLP
         return self.network(x)

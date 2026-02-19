@@ -4,6 +4,7 @@ Callback system for training loop.
 
 from pathlib import Path
 from loguru import logger
+import numpy as np
 import time
 import torch
 from typing import Any
@@ -281,18 +282,40 @@ class WandbMetricsLogger(Callback):
                     for result in val_er_results:
                         theta = result.metadata["theta"]
                         val_metrics[f"val_expected_return_theta_{theta:.4f}"] = result.value
+
+                    # Binarize predictions for expected return calculation
+                    train_er_results_bin = calc.calculate(
+                        train_predictions, train_targets, binarize=True
+                    )
+                    for result in train_er_results_bin:
+                        theta = result.metadata["theta"]
+                        metric_name = f"train_expected_return_theta_{theta:.4f}_binarized"
+                        train_metrics[metric_name] = result.value
+
+                    val_er_results_bin = calc.calculate(
+                        val_predictions, val_targets, binarize=True
+                    )
+                    for result in val_er_results_bin:
+                        theta = result.metadata["theta"]
+                        metric_name = f"val_expected_return_theta_{theta:.4f}_binarized"
+                        val_metrics[metric_name] = result.value
+
             except Exception as e:
                 logger.warning(f"Failed to compute expected returns: {e}")
 
             # Compute max theta for non-negative expected return
             try:
-                train_max_theta = self.max_theta_calculator.calculate(
-                    train_predictions, train_targets
-                )
-                train_metrics["train_max_theta"] = train_max_theta.value
+                for binarized in [False, True]:
+                    suffix = "_binarized" if binarized else ""
+                    train_max_theta = self.max_theta_calculator.calculate(
+                        train_predictions, train_targets, binarized=binarized
+                    )
+                    train_metrics[f"train_max_theta{suffix}"] = train_max_theta.value
 
-                val_max_theta = self.max_theta_calculator.calculate(val_predictions, val_targets)
-                val_metrics["val_max_theta"] = val_max_theta.value
+                    val_max_theta = self.max_theta_calculator.calculate(
+                        val_predictions, val_targets, binarized=binarized
+                    )
+                    val_metrics[f"val_max_theta{suffix}"] = val_max_theta.value
             except Exception as e:
                 logger.warning(f"Failed to compute max theta: {e}")
 
@@ -327,9 +350,20 @@ class WandbMetricsLogger(Callback):
                     metric_name = f"test_expected_return_theta_{theta:.4f}"
                     test_er_metrics[metric_name] = result.value
 
+                # Binarized expected return
+                test_er_results_bin = calc.calculate(y_pred, y_true, binarize=True)
+                for result in test_er_results_bin:
+                    theta = result.metadata["theta"]
+                    metric_name = f"test_expected_return_theta_{theta:.4f}_binarized"
+                    test_er_metrics[metric_name] = result.value
+
             # Compute max theta on test set
-            test_max_theta = self.max_theta_calculator.calculate(y_pred, y_true)
-            test_er_metrics["test_max_theta"] = test_max_theta.value
+            for binarized in [False, True]:
+                suffix = "_binarized" if binarized else ""
+                test_max_theta = self.max_theta_calculator.calculate(
+                    y_pred, y_true, binarized=binarized
+                )
+                test_er_metrics[f"test_max_theta{suffix}"] = test_max_theta.value
 
             self.wandb_logger.log_metrics(test_er_metrics)
             logger.info(f"Test expected returns: {test_er_metrics}")
@@ -404,11 +438,122 @@ class TrainingHistoryTracker(Callback):
         self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]
     ) -> None:
         """Called at the end of training."""
-        pass
+        self.history["test_predictions"] = test_predictions[0].cpu().numpy()
+        self.history["test_targets"] = test_predictions[1].cpu().numpy()
 
     def get_history(self) -> dict[str, list[float]]:
         """Get the training history."""
         return self.history
+
+
+class MLPSequenceWeightsLogger(Callback):
+    """Callback to log MLP sequence weights after training."""
+
+    def __init__(self, log_to_wandb: bool = True):
+        """
+        Initialize MLP sequence weights logger.
+
+        Args:
+            log_to_wandb: Whether to log to WandB (if enabled)
+        """
+        self.log_to_wandb = log_to_wandb
+
+    def on_train_end(
+        self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]
+    ) -> None:
+        """Log MLP sequence weights after training completes."""
+        # Check if model is MLP
+        from models.architectures.mlp import MLPTimeSeriesModel
+
+        if not isinstance(trainer.model, MLPTimeSeriesModel):
+            logger.debug("Model is not MLP, skipping sequence weights logging")
+            return
+
+        # Get the sequence weights
+        sequence_weights = trainer.model.sequence_weights.weight.data.cpu().numpy()
+
+        # Log weights to console
+        logger.info("=" * 80)
+        logger.info("MLP Sequence Weights Analysis")
+        logger.info("=" * 80)
+        logger.info(f"Weight shape: {sequence_weights.shape}")
+        logger.info("Weight statistics:")
+        logger.info(f"  Mean: {sequence_weights.mean():.6f}")
+        logger.info(f"  Std: {sequence_weights.std():.6f}")
+        logger.info(f"  Min: {sequence_weights.min():.6f}")
+        logger.info(f"  Max: {sequence_weights.max():.6f}")
+        logger.info(f"\nFull weight values (sequence_length={sequence_weights.shape[1]}):")
+
+        # Log all weights
+        weights_flat = sequence_weights.flatten()
+        for i, weight in enumerate(weights_flat):
+            logger.info(f"  Position {i:3d}: {weight:.6f}")
+
+        # Identify most important timesteps
+        abs_weights = np.abs(weights_flat)
+        top_k = min(10, len(weights_flat))
+        top_indices = np.argsort(abs_weights)[-top_k:][::-1]
+
+        logger.info(f"\nTop {top_k} most important timesteps (by absolute weight):")
+        for rank, idx in enumerate(top_indices, 1):
+            logger.info(
+                f"  {rank}. Position {idx:3d}: {weights_flat[idx]:.6f} (abs: {abs_weights[idx]:.6f})"
+            )
+
+        # Log to WandB if enabled
+        if self.log_to_wandb:
+            try:
+                import wandb
+
+                if wandb.run is not None:
+                    # Log summary statistics
+                    wandb.log(
+                        {
+                            "mlp_sequence_weights/mean": float(sequence_weights.mean()),
+                            "mlp_sequence_weights/std": float(sequence_weights.std()),
+                            "mlp_sequence_weights/min": float(sequence_weights.min()),
+                            "mlp_sequence_weights/max": float(sequence_weights.max()),
+                        }
+                    )
+
+                    # Create visualization
+                    import matplotlib.pyplot as plt
+
+                    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+                    # Plot all weights
+                    ax1.plot(weights_flat, marker="o", linestyle="-", markersize=3)
+                    ax1.set_xlabel("Sequence Position")
+                    ax1.set_ylabel("Weight Value")
+                    ax1.set_title("MLP Sequence Weights (Linear Combination Across Time)")
+                    ax1.grid(True, alpha=0.3)
+                    ax1.axhline(y=0, color="r", linestyle="--", alpha=0.5)
+
+                    # Plot absolute weights
+                    ax2.bar(range(len(abs_weights)), abs_weights, alpha=0.7)
+                    ax2.set_xlabel("Sequence Position")
+                    ax2.set_ylabel("Absolute Weight Value")
+                    ax2.set_title("MLP Sequence Weights (Absolute Values)")
+                    ax2.grid(True, alpha=0.3)
+
+                    plt.tight_layout()
+
+                    # Log to WandB
+                    wandb.log({"mlp_sequence_weights_plot": wandb.Image(fig)})
+                    plt.close(fig)
+
+                    # Log weights as table for detailed analysis
+                    weights_table = wandb.Table(
+                        columns=["position", "weight", "abs_weight"],
+                        data=[[i, float(w), float(abs(w))] for i, w in enumerate(weights_flat)],
+                    )
+                    wandb.log({"mlp_sequence_weights_table": weights_table})
+
+                    logger.info("Logged MLP sequence weights to WandB")
+            except Exception as e:
+                logger.warning(f"Failed to log MLP sequence weights to WandB: {e}")
+
+        logger.info("=" * 80)
 
 
 class ConsoleLogger(Callback):

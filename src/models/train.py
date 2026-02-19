@@ -28,6 +28,7 @@ from models.callbacks import (
     WandbMetricsLogger,
     TrainingHistoryTracker,
     ConsoleLogger,
+    MLPSequenceWeightsLogger,
 )
 from utils import setup_logging
 
@@ -449,6 +450,9 @@ def train_model(
                 theta_values=logging_config.theta_values,
             )
         )
+
+    # Add MLP sequence weights logger (only activates for MLP models)
+    callbacks.append(MLPSequenceWeightsLogger(log_to_wandb=logging_config.wandb_enabled))
 
     # Create trainer with callbacks
     trainer = ModelTrainer(config, callbacks=callbacks)

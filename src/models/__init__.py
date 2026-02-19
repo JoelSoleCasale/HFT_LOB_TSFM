@@ -45,6 +45,7 @@ from .callbacks import (
     WandbMetricsLogger,
     TrainingHistoryTracker,
     ConsoleLogger,
+    MLPSequenceWeightsLogger,
 )
 from .factories import (
     OPTIMIZER_REGISTRY,
@@ -98,6 +99,7 @@ __all__ = [
     "WandbMetricsLogger",
     "TrainingHistoryTracker",
     "ConsoleLogger",
+    "MLPSequenceWeightsLogger",
     # Factories and Registries
     "OPTIMIZER_REGISTRY",
     "SCHEDULER_REGISTRY",
