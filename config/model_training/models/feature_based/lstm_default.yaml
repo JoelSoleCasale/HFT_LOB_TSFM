@@ -1,0 +1,21 @@
+model:
+  type: "lstm"
+  sequence_length: 100
+  hidden_size: 64
+  num_layers: 1
+  bidirectional: [False, True]
+  attention: False
+  dropout: 0.2
+
+data:
+  source: "orderbook"
+  levels: 5
+
+  features:
+    - name: "advanced_orderbook"
+
+training:
+  mixed_precision: true
+
+logging:
+  experiment_name_prefix: "lstm"

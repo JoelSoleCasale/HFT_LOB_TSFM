@@ -1,0 +1,22 @@
+model:
+  type: "deeplob_attention"
+  sequence_length: 100
+  conv_filters: 16
+  inception_filters: 32
+  lstm_hidden_size: 32
+  dropout: 0.1
+  use_batch_norm: true
+  activation: "leaky_relu"
+  leaky_relu_slope: 0.01
+
+data:
+  source: "orderbook"
+  levels: 10
+
+  features:
+    - name: "deeplob_attention_features"
+      params:
+        levels: 10
+
+logging:
+  experiment_name_prefix: "deeplob_attn"

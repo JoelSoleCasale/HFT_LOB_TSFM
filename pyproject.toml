@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "cryptohftdata>=0.1.4",
     "fastparquet>=2024.11.0",
     "hftbacktest>=2.3.0",
     "hvplot>=0.12.1",
@@ -13,18 +12,122 @@ dependencies = [
     "ipywidgets>=8.1.7",
     "loguru>=0.7.3",
     "matplotlib>=3.10.6",
+    "numba>=0.62.0",
     "numpy>=2.2.6",
-    "pandas>=2.3.2",
+    "poethepoet>=0.37.0",
     "polars>=1.33.1",
     "pyarrow>=21.0.0",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0.2",
     "seaborn>=0.13.2",
+    "sortedcontainers>=2.4.0",
     "tqdm>=4.67.1",
+    "zstandard>=0.25.0",
+    "torch>=2.9.0",
+    "wandb>=0.16.0",
+    "scikit-learn>=1.3.0",
+    "chronos-forecasting>=2.2.0",
 ]
+
+# Specific versions of torch, torchvision, and torchaudio are installed based on the extra feature
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5.0",
+]
+cpu = ["torch==2.9.0"]
+cu126 = ["torch==2.9.0"]
+cu128 = ["torch==2.9.0"]
+cu130 = ["torch==2.9.0"]
+
+
+[tool.uv]
+# The cpu, cu126, cu128, and cu130 extras are mutually exclusive, you can't use both at the same time
+conflicts = [[{ extra = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "cu130" }]]
+package = true
+
+# The package is only installed on Linux systems
+# environments = ["sys_platform == 'linux' and os_name == 'posix'"]
+
+[tool.uv.sources]
+# The torch, torchvision, and torchaudio packages are installed from the pytorch-cpu, pytorch-cu126, pytorch-cu128, and pytorch-cu130 indexes
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu126", extra = "cu126" },
+  { index = "pytorch-cu128", extra = "cu128" },
+  { index = "pytorch-cu130", extra = "cu130" },
+]
+
+
+[[tool.uv.index]]
+# The pytorch-cpu index is used to install the torch, torchvision, and torchaudio packages
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.setuptools.package-dir]
 "" = "src"
 
-[tool.uv]
-package = true
+[tool.poe.tasks]
+hooks = { shell = "uvx pre-commit install --overwrite --install-hooks --hook-type pre-commit --hook-type post-checkout --hook-type pre-push && git checkout" }
+install-test = "uv sync --extra test"
+test = "uv run --extra test pytest tests/ -v -m 'not slow'"
+test-full = "uv run --extra test pytest tests/ -v"
+test-unit = "uv run --extra test pytest tests/unit/ -v -m unit"
+test-integration = "uv run --extra test pytest tests/integration/ -v -m 'integration and not slow'"
+test-integration-full = "uv run --extra test pytest tests/integration/ -v -m integration"
+test-cov = "uv run --extra test pytest tests/ --cov=src --cov-report=html --cov-report=term-missing -m 'not slow'"
+
+[tool.poe.tasks.clean-test]
+shell = """
+rm -rf .pytest_cache
+rm -rf htmlcov
+find . -type d -name __pycache__ -exec rm -rf {} +
+find . -name "*.pyc" -delete
+"""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short --strict-markers --color=yes"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "requires_data: Tests that require external data files",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore:Row orientation inferred during DataFrame construction:UserWarning",
+    "ignore:The 'repr' attribute with value.*:pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+    "ignore:The 'frozen' attribute with value.*:pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+]
+
+[tool.black]
+line-length = 99
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+    "jupyterlab>=4.4.10",
+]

@@ -1,0 +1,17 @@
+model:
+  type: "ctabl"
+  sequence_length: 100
+  dropout: 0.1
+  activation: "relu"
+
+data:
+  source: "orderbook"
+  levels: 10
+
+  features:
+    - name: "ctabl_features"
+      params:
+        levels: 10
+
+logging:
+  experiment_name_prefix: "c_ctabl"

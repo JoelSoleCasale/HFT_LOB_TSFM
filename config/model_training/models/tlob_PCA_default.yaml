@@ -1,0 +1,23 @@
+data:
+  device: "cuda"
+  source: "embeddings"
+  embedding_code: "chronos2-base_ctx512_seqlast_s5"
+  pca_components: [256] #, 512, 1024]
+  stride: 1
+
+model:
+  type: "tlob"
+  sequence_length: 100
+  hidden_dim: 16 # default: 64
+  num_layers: 2
+  num_heads: 4
+  is_sin_emb: true
+  dropout: 0.1
+
+training:
+  mixed_precision: true
+  learning_rate: 0.0001
+
+logging:
+  project_name: "final_experiments_test"
+  experiment_name_prefix: "tlob_PCA"

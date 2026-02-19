@@ -1,0 +1,10 @@
+symbol:
+  - BTCUSDT
+  - LTCUSDT
+exchange:
+  - binance_futures
+levels: 20
+force_regenerate: false
+dates:
+  start_date: "2025-07-01"
+  end_date: "2025-08-31" # If null, use today's date

@@ -14,3 +14,18 @@ wheels/
 
 # Dataframes
 data/
+
+# test coverage
+htmlcov/
+.coverage
+
+# wandb
+wandb/
+
+# bash files
+*.sh
+
+model_checkpoint/
+logs/
+
+chronos-2-finetuned/

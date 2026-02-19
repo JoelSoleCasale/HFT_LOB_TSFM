@@ -1,0 +1,30 @@
+# PCA Processing Configuration
+# This configuration is used for precomputing PCA models on embeddings
+
+# PCA parameters
+n_components: 512
+chunk_size: 10000
+whiten: false
+
+# Data configuration
+exchanges:
+  - binance_futures
+
+symbols:
+  - LTCUSDT
+
+embedding_codes:
+  - chronos2-base_ctx512_seqlast_s5
+
+# Date range for PCA training
+dates:
+  start_date: "2025-07-01"
+  end_date: "2025-07-08"
+
+# Paths
+pca_model_path: null  # null means use ROOT_DIR/data/embeddings/pca
+
+# Processing options
+max_samples: null  # null means use all available samples
+force_recompute: false
+verbose: true
