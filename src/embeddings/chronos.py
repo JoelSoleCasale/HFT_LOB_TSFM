@@ -39,6 +39,11 @@ _MODEL_CONFIGS = {
         "pipeline_class": Chronos2Pipeline,
         "model_name_template": "amazon/chronos-2",
     },
+    "autogluon-chronos2": {
+        "sizes": ["small", "synth"],
+        "pipeline_class": Chronos2Pipeline,
+        "model_name_template": "autogluon/chronos-2-{size}",
+    },
 }
 
 
@@ -60,7 +65,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
 
         Args:
             config: Configuration dictionary with the following keys:
-                - model_type: Type of Chronos model ("t5", "bolt", or "chronos2", default: "t5")
+                - model_type: Type of Chronos model ("t5", "bolt", "chronos2", "autogluon-chronos2", default: "t5")
                 - model_size: Size of the model ("mini", "small", "base", "large", default: "mini")
                   Note: For chronos2, only base size is available (model_size is ignored)
                 - seq_aggregation: How to aggregate across sequence dimension ("last", "mean", "max", "min", or "concat", default: "last")
@@ -145,7 +150,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                     )
 
                 # Load pipeline with appropriate dtype
-                if self.model_type == "chronos2":
+                if self.model_type in ["chronos2", "autogluon-chronos2"]:
                     _PIPELINE_CACHE[cache_key] = pipeline_class.from_pretrained(
                         model_name,
                         device_map=self.device,
@@ -174,7 +179,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         Returns:
             Embeddings tensor of shape (batch_size, n_features, new_seq_len, embedding_size)
         """
-        if self.model_type == "chronos2":
+        if self.model_type in ["chronos2", "autogluon-chronos2"]:
             # Chronos 2: Input shape (batch_size, n_features, seq_len)
             # Output is a list of tensors, convert to single tensor
             embeddings_list, _ = self.pipeline.embed(context)
