@@ -148,32 +148,69 @@ def create_experiment_configs(
 
     data_config = DataConfig(
         sequence_length=256,
-        batch_size=1024,
+        batch_size=512,
+        stride=5,
         train_split=0.8,
         val_split=0.1,
         test_split=0.1,
         device="cuda",
     )
     train_config = TrainingConfig(
-        learning_rate=0.005,
-        num_epochs=50,
-        early_stopping_patience=5,
+        learning_rate=0.001,
+        num_epochs=100,
+        early_stopping_patience=10,
         optimizer="adam",
         scheduler="cosine",
         loss_function="focal",
-        loss_params={"alpha": class_weights, "gamma": 2.0},
+        loss_params={"alpha": class_weights, "gamma": 1.0},
         mixed_precision=True,
         use_tqdm=use_tqdm,
     )
 
     def get_logging_config(name: str) -> LoggingConfig:
         return LoggingConfig(
-            project_name="financial-models",
+            project_name="feat-model",
             experiment_name=f"{name}_alpha=5e-4",
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
         )
+
+    # Experiment 0: small LSTM
+    experiments.append(
+        ModelConfig(
+            architecture=LSTMConfig(
+                input_size=input_size,
+                hidden_size=64,
+                num_layers=1,
+                output_size=3,
+                dropout=0.2,
+                bidirectional=True,
+                attention=False,
+            ),
+            data=data_config,
+            training=train_config,
+            logging=get_logging_config("small_lstm_no_attention_seq64"),
+        )
+    )
+
+    # Experiment 0: small LSTM 2
+    experiments.append(
+        ModelConfig(
+            architecture=LSTMConfig(
+                input_size=input_size,
+                hidden_size=128,
+                num_layers=1,
+                output_size=3,
+                dropout=0.2,
+                bidirectional=True,
+                attention=False,
+            ),
+            data=data_config,
+            training=train_config,
+            logging=get_logging_config("small_lstm_no_attention_seq128"),
+        )
+    )
 
     # Experiment 1: LSTM with attention
     experiments.append(
@@ -486,7 +523,7 @@ Examples:
 
     # Data loading configuration
     FIRST_DATE = date(2025, 7, 1)
-    N_DAYS = 1
+    N_DAYS = 10
     SAMPLE_INTERVAL = 100_000_000  # nanoseconds
 
     # Load data once (shared across all experiments)
