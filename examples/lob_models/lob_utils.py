@@ -10,12 +10,14 @@ from datetime import date, timedelta
 from typing import Optional
 
 import polars as pl
+import numpy as np
 
 from core.orderbook import OrderBook
 from features import InputSpace, TripleBarrierLabel
 from models.config import DataConfig, TrainingConfig, LoggingConfig
 from utils import date_range
 from definitions import ROOT_DIR
+from sklearn.utils.class_weight import compute_class_weight
 
 # Default configuration constants
 DEFAULT_FIRST_DATE = date(2025, 7, 1)
@@ -23,7 +25,8 @@ DEFAULT_N_DAYS = 10
 DEFAULT_LEVELS = 10
 DEFAULT_SAMPLE_TIME_DELTA = 100_000_000  # nanoseconds
 DEFAULT_HORIZON = 200
-DEFAULT_THRESHOLD = 1e-4
+DEFAULT_SEQUENCE_LENGTH = 200
+DEFAULT_THRESHOLD = 2e-4
 
 
 def get_orderbook_path(
@@ -108,7 +111,7 @@ def extract_labels(
     input_space: InputSpace,
     horizon: int = DEFAULT_HORIZON,
     threshold: float = DEFAULT_THRESHOLD,
-) -> "pl.LazyFrame":
+) -> tuple[pl.LazyFrame, TripleBarrierLabel]:
     """
     Extract labels from input space using TripleBarrierLabel.
 
@@ -154,16 +157,12 @@ def calculate_class_weights(labels_collected: pl.DataFrame, label_column_name: s
     Returns:
         List of class weights [down, neutral, up]
     """
-    label_counts = labels_collected[label_column_name].value_counts()
-    total_samples = len(labels_collected)
 
-    class_weights = [0.0, 0.0, 0.0]
-    for label_value, count in label_counts.iter_rows():
-        freq = count / total_samples
-        class_weights[label_value + 1] = 1 / freq
+    labels = labels_collected[label_column_name].to_numpy()
+    class_weights = compute_class_weight("balanced", classes=np.array([-1, 0, 1]), y=labels)
 
     print(f"\nClass weights for focal loss: {[f'{w:.2f}' for w in class_weights]}")
-    return class_weights
+    return list(class_weights)
 
 
 def print_training_header(model_name: str, first_date: date, n_days: int) -> None:
@@ -298,7 +297,7 @@ def create_data_config(
 
 
 def create_training_config(
-    learning_rate: float = 0.01,
+    learning_rate: float = 0.0001,
     num_epochs: int = 100,
     optimizer: str = "adam",
     loss_function: str = "cross_entropy",
@@ -350,7 +349,7 @@ def create_training_config(
 def create_logging_config(
     experiment_name: str,
     lambda_value: float,
-    project_name: str = "lob-models-1bps-200H",
+    project_name: str = None,
     wandb_enabled: bool = True,
     log_confusion_matrix: bool = True,
     log_trade_accuracy_vs_threshold: bool = True,
@@ -373,6 +372,8 @@ def create_logging_config(
     Returns:
         Configured LoggingConfig instance
     """
+    if project_name is None:
+        project_name = f"lob-models-{DEFAULT_THRESHOLD*1e4:.2}bps-{DEFAULT_HORIZON}H"
     if theta_values is None:
         theta_values = [0.0, 1e-4, 4e-4]
 

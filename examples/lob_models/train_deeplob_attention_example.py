@@ -9,9 +9,9 @@ This script demonstrates how to:
 5. Evaluate the trained model
 """
 
-import warnings
+# ruff: noqa: F403, F405
 
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
+import warnings
 
 from features import (
     FeaturePipeline,
@@ -22,7 +22,9 @@ from models import (
     train_model,
 )
 from models.architectures.lob import DeepLOBAttentionConfig
-from lob_utils import *
+from lob_utils import *  # noqa: F403, F405
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
 def main():
@@ -51,9 +53,7 @@ def main():
 
     # Extract features and labels
     features = feature_pipeline.extract_all(input_space)
-    labels, label_extractor = extract_labels(
-        input_space, threshold=3e-4
-    )  # Override default threshold
+    labels, label_extractor = extract_labels(input_space)
 
     features_collected = features.collect()
     labels_collected = labels.collect()
@@ -92,19 +92,27 @@ def main():
         },
     )
 
+    if max(class_weights) / min(class_weights) > 5.0:
+        print("Warning: High class imbalance detected. " "Using a weighted loss function.")
+        loss_used = {
+            "loss_function": "focal",
+            "loss_params": {"alpha": class_weights, "gamma": 1.0},
+        }
+    else:
+        print("Class imbalance within acceptable range. Using standard loss function.")
+        loss_used = {"loss_function": "cross_entropy"}
+
     # Create full model configuration
     config = ModelConfig(
         architecture=attention_config,
         data=create_data_config(
             sequence_length=SEQUENCE_LENGTH,
-            batch_size=128,
         ),
         training=create_training_config(
-            # loss_function="focal",
-            # loss_params={"alpha": class_weights, "gamma": 2.0},
+            **loss_used,
         ),
         logging=create_logging_config(
-            experiment_name="deeplob_attention",
+            experiment_name=f"deeplob_attention-{loss_used['loss_function'].upper()}",
             lambda_value=label_extractor.threshold,
         ),
     )

@@ -5,9 +5,9 @@ CTABL architecture: Bilinear layers + Temporal Attention Augmented Bilinear laye
 Default template per paper: [40x10] -> [120x5] -> [3x1]
 """
 
-import warnings
+# ruff: noqa: F403, F405
 
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
+import warnings
 
 from features import (
     FeaturePipeline,
@@ -18,7 +18,9 @@ from models import (
     train_model,
 )
 from models.architectures.lob import CTABLConfig
-from lob_utils import *
+from lob_utils import *  # noqa: F403, F405
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
 def main():
@@ -43,9 +45,7 @@ def main():
     print_pipeline_created("CTABLFeatures")
 
     features = feature_pipeline.extract_all(input_space)
-    labels, label_extractor = extract_labels(
-        input_space, threshold=3e-4
-    )  # Override default threshold
+    labels, label_extractor = extract_labels(input_space)
 
     features_collected = features.collect()
     labels_collected = labels.collect()
@@ -79,19 +79,27 @@ def main():
         },
     )
 
+    if max(class_weights) / min(class_weights) > 5.0:
+        print("Warning: High class imbalance detected. " "Using a weighted loss function.")
+        loss_used = {
+            "loss_function": "focal",
+            "loss_params": {"alpha": class_weights, "gamma": 2.0},
+        }
+    else:
+        print("Class imbalance within acceptable range. Using standard loss function.")
+        loss_used = {"loss_function": "cross_entropy"}
+
     config = ModelConfig(
         architecture=ctabl_config,
         data=create_data_config(
             sequence_length=SEQUENCE_LENGTH,
-            batch_size=128,
         ),
         training=create_training_config(
-            # loss_function="focal",
-            # loss_params={"alpha": class_weights, "gamma": 2.0},
+            **loss_used,
             gradient_clip_norm=1.0,  # Add gradient clipping for stability
         ),
         logging=create_logging_config(
-            experiment_name="ctabl",
+            experiment_name=f"ctabl-{loss_used['loss_function'].upper()}",
             lambda_value=label_extractor.threshold,
         ),
     )

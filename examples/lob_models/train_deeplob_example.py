@@ -9,9 +9,9 @@ This script demonstrates how to:
 5. Evaluate the trained model
 """
 
-import warnings
+# ruff: noqa: F403, F405
 
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
+import warnings
 
 from features import (
     FeaturePipeline,
@@ -22,7 +22,9 @@ from models import (
     train_model,
 )
 from models.architectures.lob import DeepLOBConfig
-from lob_utils import *
+from lob_utils import *  # noqa: F403, F405
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
 def main():
@@ -30,6 +32,7 @@ def main():
 
     # Configuration
     LEVELS = DEFAULT_LEVELS  # DeepLOB uses 10 levels (40 features)
+    SEQUENCE_LENGTH = DEFAULT_SEQUENCE_LENGTH
 
     print_training_header("DeepLOB", DEFAULT_FIRST_DATE, DEFAULT_N_DAYS)
 
@@ -51,9 +54,7 @@ def main():
 
     # Extract features and labels
     features = feature_pipeline.extract_all(input_space)
-    labels, label_extractor = extract_labels(
-        input_space, threshold=3e-4
-    )  # Override default threshold
+    labels, label_extractor = extract_labels(input_space)
 
     features_collected = features.collect()
     labels_collected = labels.collect()
@@ -65,19 +66,15 @@ def main():
     class_weights = calculate_class_weights(labels_collected, label_extractor.label_names[0])
 
     # Create DeepLOB configuration
-    SEQUENCE_LENGTH = 128  # DeepLOB paper uses 100 timesteps
     INPUT_SIZE = LEVELS * 4
 
     deeplob_config = DeepLOBConfig(
         input_size=INPUT_SIZE,
         output_size=3,  # -1, 0, 1 for directional labels
-        conv_filters=32,
-        inception_filters=64,
-        lstm_hidden_size=64,
+        conv_filters=16,
+        inception_filters=32,
+        lstm_hidden_size=32,
         dropout=0.2,
-        activation="leaky_relu",
-        leaky_relu_slope=0.01,
-        use_batch_norm=True,
     )
 
     print_architecture_config(
@@ -92,19 +89,27 @@ def main():
         },
     )
 
+    if max(class_weights) / min(class_weights) > 5.0:
+        print("Warning: High class imbalance detected. " "Using a weighted loss function.")
+        loss_used = {
+            "loss_function": "focal",
+            "loss_params": {"alpha": class_weights, "gamma": 2.0},
+        }
+    else:
+        print("Class imbalance within acceptable range. Using standard loss function.")
+        loss_used = {"loss_function": "cross_entropy"}
+
     # Create full model configuration
     config = ModelConfig(
         architecture=deeplob_config,
         data=create_data_config(
             sequence_length=SEQUENCE_LENGTH,
-            batch_size=128,
         ),
         training=create_training_config(
-            # loss_function="focal",
-            # loss_params={"alpha": class_weights, "gamma": 2.0},
+            **loss_used,
         ),
         logging=create_logging_config(
-            experiment_name="deeplob",
+            experiment_name=f"deeplob-{loss_used['loss_function'].upper()}",
             lambda_value=label_extractor.threshold,
         ),
     )
