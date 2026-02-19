@@ -129,11 +129,15 @@ def apply_pca_reduction(
     train_start_date: date,
     train_end_date: date,
     embedding_code: str,
+    data_start_date: date,
+    data_end_date: date,
     exchange: str = "binance_futures",
     symbol: str = "BTCUSDT",
+    base_path: str = "/scratch/PI/palomar/joel_sole/embedding_data",
 ) -> tuple[pl.LazyFrame, int]:
     """
     Apply PCA dimensionality reduction using pre-computed PCA model.
+    Results are cached to disk to avoid repeated computations.
 
     Args:
         embeddings: LazyFrame with embeddings and timestamp
@@ -141,8 +145,11 @@ def apply_pca_reduction(
         train_start_date: Start date of training period used to fit PCA
         train_end_date: End date of training period used to fit PCA
         embedding_code: Embedding configuration code
+        data_start_date: Start date of the data being reduced
+        data_end_date: End date of the data being reduced
         exchange: Exchange name
         symbol: Trading symbol
+        base_path: Base directory containing embedding data
 
     Returns:
         Tuple of (LazyFrame with PCA-transformed embeddings and timestamp, original embedding size)
@@ -152,8 +159,26 @@ def apply_pca_reduction(
     embedding_cols = [col for col in all_cols if col != "timestamp"]
     original_size = len(embedding_cols)
 
+    # Define cache path
+    cache_dir = Path(base_path) / exchange / symbol / "PCA" / f"{embedding_code}_pca{n_components}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_filename = (
+        f"{data_start_date.strftime('%Y-%m-%d')}_{data_end_date.strftime('%Y-%m-%d')}.parquet"
+    )
+    cache_path = cache_dir / cache_filename
+
+    # Check if cached file exists
+    if cache_path.exists():
+        logger.info(f"Loading cached PCA-reduced embeddings from: {cache_path}")
+        reduced_embeddings = pl.scan_parquet(cache_path)
+        logger.info(
+            f"Cached embeddings loaded successfully (original size: {original_size} -> {n_components})"
+        )
+        return reduced_embeddings, original_size
+
     logger.info(
-        f"Applying PCA dimensionality reduction from {original_size} to {n_components} components..."
+        f"Cache not found. Applying PCA dimensionality reduction from {original_size} to {n_components} components..."
     )
 
     # Initialize PCA processor
@@ -161,7 +186,7 @@ def apply_pca_reduction(
         exchange=exchange,
         symbol=symbol,
         embedding_code=embedding_code,
-        base_path="/scratch/PI/palomar/joel_sole/embedding_data",
+        base_path=base_path,
     )
 
     # Load pre-computed PCA model
@@ -190,9 +215,20 @@ def apply_pca_reduction(
         keep_timestamp=True,
     )
 
+    # set the quantization to Float32 to save memory
+    reduced_embeddings = reduced_embeddings.cast({pl.Float64: pl.Float32})
+
     # Log explained variance
     total_variance = incremental_pca.get_total_explained_variance()
     logger.info(f"Total explained variance: {total_variance:.4f}")
+
+    # Save to cache using sink_parquet (no need to collect)
+    logger.info(f"Saving PCA-reduced embeddings to cache: {cache_path}")
+    reduced_embeddings.sink_parquet(cache_path)
+
+    # Load the cached file as LazyFrame
+    reduced_embeddings = pl.scan_parquet(cache_path)
+    logger.info("Cache saved and reloaded successfully")
 
     return reduced_embeddings, original_size
 
@@ -201,7 +237,10 @@ def main():
     """Main function demonstrating model training on embeddings."""
 
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Train MLP model on Chronos embeddings")
+    parser = argparse.ArgumentParser(
+        description="Train MLP model on Chronos embeddings",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
         "--embedding-code",
         type=str,
@@ -214,6 +253,12 @@ def main():
         nargs="*",
         default=[64],
         help="List of hidden layer sizes for MLP (e.g., --hidden-sizes 64 128 64). Use --hidden-sizes with no values for empty list (linear model)",
+    )
+    parser.add_argument(
+        "--n-components",
+        type=int,
+        default=512,
+        help="Number of PCA components to reduce embeddings to",
     )
     args = parser.parse_args()
 
@@ -249,7 +294,7 @@ def main():
     # ============================================================================
     # PCA Dimensionality Reduction (before joining with labels)
     # ============================================================================
-    N_COMPONENTS = 512  # Number of PCA components to keep
+    N_COMPONENTS = args.n_components  # Number of PCA components to keep
     TRAIN_SPLIT = 0.8  # Must match DataConfig train_split
 
     # Calculate training period end date (for loading pre-computed PCA)
@@ -258,13 +303,15 @@ def main():
 
     print(f"\nPCA training period: {FIRST_DATE} to {train_end_date} ({train_n_days} days)")
 
-    # Apply PCA using pre-computed model
+    # Apply PCA using pre-computed model (with caching)
     embeddings, original_embedding_size = apply_pca_reduction(
         embeddings=embeddings,
         n_components=N_COMPONENTS,
         train_start_date=FIRST_DATE,
         train_end_date=train_end_date,
         embedding_code=EMBEDDING_CODE,
+        data_start_date=FIRST_DATE,
+        data_end_date=END_DATE,
     )
 
     print(f"Original embedding dimension: {original_embedding_size}")
@@ -280,7 +327,6 @@ def main():
     ob_paths = get_orderbook_paths(
         start_date=FIRST_DATE,
         end_date=END_DATE,
-        levels=20,
     )
     print(f"Found {len(ob_paths)} orderbook files")
     orderbook_data = (
@@ -295,7 +341,7 @@ def main():
     )
 
     # Build label pipeline
-    directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 5e-4})
+    directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 2e-4})
 
     print("Extracting labels...")
     labels = directional_return_label.extract(input_space).collect()
@@ -351,24 +397,55 @@ def main():
         input_size=input_size,
         output_size=3,  # -1, 0, 1 for directional labels
         hidden_sizes=args.hidden_sizes,  # From command-line args
-        dropout=0.3,
+        dropout=0.2,
         sequence_length=1,  # Each embedding is a single timestamp
     )
+
+    # Parse embedding code to extract components
+    embedding_parts = EMBEDDING_CODE.split("_")
+    embedding_info = {}
+    for part in embedding_parts:
+        if part.startswith("ctx"):
+            embedding_info["context_length"] = int(part[3:])
+        elif part.startswith("seq"):
+            embedding_info["sequence_method"] = part[3:]
+        elif part.startswith("s"):
+            try:
+                embedding_info["sampling_rate"] = int(part[1:])
+            except ValueError:
+                pass  # Not a sampling rate
+        elif "-" in part:
+            # This is likely the model name (e.g., "chronos2-base")
+            embedding_info["embedding_model"] = part
+
+    # Collect all relevant training metadata
+    other_info = {
+        "pca_components": N_COMPONENTS,
+        "original_embedding_size": original_embedding_size,
+        "embedding_code": EMBEDDING_CODE,
+        **embedding_info,
+        "first_date": FIRST_DATE.isoformat(),
+        "end_date": END_DATE.isoformat(),
+        "num_days": N_DAYS,
+        "label_horizon": directional_return_label.config["horizon"],
+        "label_threshold": directional_return_label.config["threshold"],
+        "max_total_samples": MAX_TOTAL_SAMPLES,
+    }
 
     config = ModelConfig(
         architecture=mlp_config,
         data=DataConfig(
             sequence_length=1,  # Only use current timestamp embedding
-            batch_size=256,
-            stride=1,  # No overlap needed since sequence_length=1
+            batch_size=1024,
+            stride=5,
             train_split=0.8,
             val_split=0.1,
             test_split=0.1,
-            device="cpu",
+            device="cuda",
         ),
         training=TrainingConfig(
             learning_rate=0.001,
-            num_epochs=50,
+            num_epochs=100,
             early_stopping_patience=10,
             optimizer="adamw",
             scheduler="cosine",
@@ -377,14 +454,15 @@ def main():
             mixed_precision=False,
         ),
         logging=LoggingConfig(
-            project_name="financial-models",
-            experiment_name=f"mlp_{args.hidden_sizes}_embeddings_{EMBEDDING_CODE}",
+            project_name="E_pca_mlp_training",
+            experiment_name=f"mlp-{args.hidden_sizes}_pca-{args.n_components}_E-{EMBEDDING_CODE}",
             wandb_enabled=True,
             log_confusion_matrix=True,
             log_trade_accuracy_vs_threshold=True,
             lambda_value=directional_return_label.threshold,
             theta_values=[0.0, 1e-4, 4e-4],
         ),
+        other=other_info,
     )
 
     print("\nStarting model training...")
