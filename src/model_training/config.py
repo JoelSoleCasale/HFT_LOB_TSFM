@@ -72,47 +72,40 @@ def generate_config_variants(base_config: Dict[str, Any]) -> Iterator[Dict[str, 
         yield _unflatten_config(variant_flat)
 
 
-def parse_list_arg(arg: Union[str, int, List], type: type = int) -> List[int]:
-    """
-    Parse a string argument like "128,64" into a list of integers [128, 64].
-    If it's already a list, return it (though this case shouldn't happen for hidden_sizes based on rules).
-    If it's a single int/str, wrap in list.
-    """
+def parse_list_arg(arg: Union[str, int, List], cast: type = int) -> List:
+    """Parse a string like "128,64" into a list; wraps single values; handles existing lists."""
     if isinstance(arg, list):
-        return [type(x) for x in arg]
+        return [cast(x) for x in arg]
     if isinstance(arg, (int, float)):
-        return [type(arg)]
+        return [cast(arg)]
     if isinstance(arg, str):
         if "," in arg:
-            return [type(x.strip()) for x in arg.split(",")]
-        else:
-            if arg.strip() == "":
-                return []
-            return [type(arg)]
+            return [cast(x.strip()) for x in arg.split(",")]
+        if arg.strip() == "":
+            return []
+        return [cast(arg)]
     return []
+
+
+def update_recursive(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep-merge *update* into *base*, returning *base* (mutated in-place)."""
+    for k, v in update.items():
+        if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+            update_recursive(base[k], v)
+        else:
+            base[k] = v
+    return base
 
 
 @dataclass
 class ExperimentConfig:
     global_config: Dict[str, Any]
     model_config: Dict[str, Any]
-    # merged config is useful, but we keep them separate mostly
 
     @property
     def merged(self) -> Dict[str, Any]:
-        """Deep merge global and model config."""
-        # Simple merge, model config overrides global if conflict
-        merged = deepcopy(self.global_config)
-
-        def update_recursive(d: dict, u: dict):
-            for k, v in u.items():
-                if isinstance(v, dict):
-                    d[k] = update_recursive(d.get(k, {}), v)
-                else:
-                    d[k] = v
-            return d
-
-        return update_recursive(merged, self.model_config)
+        """Deep merge global and model config, model config takes precedence."""
+        return update_recursive(deepcopy(self.global_config), self.model_config)
 
 
 def load_and_generate_experiments(
@@ -121,31 +114,11 @@ def load_and_generate_experiments(
     global_conf = load_yaml(global_config_path)
     model_conf = load_yaml(model_config_path)
 
-    # Generate variants for each separately?
-    # Or merge first then generate?
-    # Merging first is better to allow model config to override global arrays if needed,
-    # but more complex if keys overlap.
-    # Let's generate variants for each and cross product them.
-
     global_variants = list(generate_config_variants(global_conf))
     model_variants = list(generate_config_variants(model_conf))
 
-    all_experiments = []
-
-    for g_var in global_variants:
-        for m_var in model_variants:
-            # Merge: Model config takes precedence over global
-            merged = deepcopy(g_var)
-
-            # Recursive merge helper
-            def update_recursive(base, update):
-                for k, v in update.items():
-                    if isinstance(v, dict) and k in base and isinstance(base[k], dict):
-                        update_recursive(base[k], v)
-                    else:
-                        base[k] = v
-
-            update_recursive(merged, m_var)
-            all_experiments.append(merged)
-
-    return all_experiments
+    return [
+        update_recursive(deepcopy(g_var), m_var)
+        for g_var in global_variants
+        for m_var in model_variants
+    ]

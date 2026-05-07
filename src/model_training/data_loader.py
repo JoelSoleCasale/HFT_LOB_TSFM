@@ -181,7 +181,6 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     exchange = data_config.get("exchange", "binance_futures")
     symbol = data_config["symbol"]
 
-    # 1. Load Embeddings
     logger.info(f"Loading embeddings: {embedding_code}...")
     embedding_paths = get_embeddings_paths(
         str_code=embedding_code,
@@ -252,14 +251,10 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     logger.info("Extracting labels...")
     labels = directional_return_label.extract(input_space).collect()
 
-    # 4. Merge
     logger.info("Joining embeddings with labels...")
     label_col = directional_return_label.label_names[0]
-
-    # Inner join
     data = embeddings.join(labels.lazy(), on="timestamp", how="inner")
 
-    # Calculate class weights
     y = labels[label_col].to_numpy()
     unique_classes = np.unique(y)
     expected_classes = np.array([-1, 0, 1])
@@ -273,14 +268,12 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     class_weights = weights.tolist()
     logger.info(f"Computed balanced class weights: {class_weights}")
 
-    # Prepare output LazyFrames
     schema = data.collect_schema()
     embedding_cols = [col for col in schema.names() if col not in ["timestamp", label_col]]
 
     features_df = data.select(["timestamp"] + embedding_cols)
     labels_df = data.select(["timestamp", label_col])
 
-    # Metadata
     metadata = {
         "class_weights": class_weights,
         "input_size": (n_components if n_components else original_embedding_size),
@@ -310,7 +303,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     exchange = data_config.get("exchange", "binance_futures")
     symbol = data_config["symbol"]
 
-    # 1. Load Orderbook
     logger.info("Loading orderbook data for features and labels...")
     ob_paths = get_orderbook_paths(
         start_date=first_date, end_date=end_date, exchange=exchange, symbol=symbol
@@ -319,7 +311,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     if not ob_paths:
         raise FileNotFoundError(f"No orderbook files found for {exchange}/{symbol}")
 
-    # Standard loading for DeepLOB-like models
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(data_config.get("levels", 10))
@@ -328,7 +319,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
 
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
 
-    # 2. Extract Features
     logger.info("Extracting features from pipeline...")
     pipeline = FeaturePipeline()
     feature_configs = data_config.get("features", [])
@@ -349,12 +339,9 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
 
     features = pipeline.extract_all(input_space)
 
-    # Calculate input size
     schema = features.collect_schema()
-    # Subtract timestamp
     input_size = len([c for c in schema.names() if c != "timestamp"])
 
-    # 3. Extract Labels
     label_config = config.get("labels", {})
     horizon = label_config.get("horizon", 200)
     threshold = label_config.get("threshold", 2e-4)
@@ -368,11 +355,7 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     logger.info("Extracting labels...")
     labels = directional_return_label.extract(input_space)
 
-    # We collect labels to compute weights (DeepLOB example does this)
-    # Note: features are kept lazy
     labels_collected = labels.collect()
-
-    # 4. Calculate Class Weights
     label_col = directional_return_label.label_names[0]
     y = labels_collected[label_col].to_numpy()
     unique_classes = np.unique(y)
@@ -385,17 +368,14 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     class_weights = weights.tolist()
     logger.info(f"Computed balanced class weights: {class_weights}")
 
-    # Metadata
     metadata = {
         "class_weights": class_weights,
         "input_size": input_size,
         "label_col": label_col,
     }
 
-    labels_lazy = labels_collected.lazy()
-
-    # Join to enforce timestamp alignment, mirroring the embeddings path.
-    data = features.join(labels_lazy, on="timestamp", how="inner")
+    # Inner join enforces timestamp alignment between features and labels
+    data = features.join(labels_collected.lazy(), on="timestamp", how="inner")
 
     features_df = data.select(["timestamp"] + [c for c in schema.names() if c != "timestamp"])
     labels_df = data.select(["timestamp", label_col])
@@ -408,7 +388,6 @@ def prepare_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, dict]:
     Prepare features and labels based on configuration.
     Returns (features_df, labels_df, metadata)
     """
-    # Extract config parameters
     data_config = config.get("data", {})
 
     data_source = data_config.get("source", "embeddings")
