@@ -75,7 +75,12 @@ class OrderBookProcessor:
         )
 
         result = []
-        prev_ts = df.select(request.reference_ts).head(1).collect().item()
+        _head = df.select(request.reference_ts).head(1).collect()
+        if _head.is_empty():
+            raise ValueError(
+                f"Orderbook data is empty for {request.exchange}/{request.symbol}/{request.date}"
+            )
+        prev_ts = _head.item()
 
         total_rows = df.select(pl.len()).collect().item()
 

@@ -1,11 +1,3 @@
-"""
-CLI for processing orderbook data to generate embeddings at scale.
-
-This module provides a command-line interface for generating embeddings from
-orderbook snapshots, extracting features and processing multiple days with
-hourly granularity to handle large datasets efficiently.
-"""
-
 import yaml
 from loguru import logger
 from datetime import date, timedelta
@@ -36,7 +28,7 @@ def load_config() -> dict:
     return config
 
 
-def parse_args(default_cfg: dict) -> argparse.Namespace:
+def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
     """
     Parse command-line arguments with defaults from configuration.
 
@@ -44,7 +36,7 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         default_cfg: Default configuration from YAML
 
     Returns:
-        Parsed arguments
+        Tuple of (parsed arguments, default config)
     """
     parser = argparse.ArgumentParser(
         description="Generate embeddings from feature data with hourly granularity.",
@@ -70,7 +62,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         overwrite_existing=default_cfg["embeddings"]["overwrite_existing"],
     )
 
-    # General arguments
     parser.add_argument(
         "--log_level",
         type=str,
@@ -83,7 +74,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="Base folder for data",
     )
 
-    # Embedding configuration
     parser.add_argument(
         "--embedding_type",
         type=str,
@@ -150,7 +140,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="Number of samples to use as context",
     )
 
-    # Feature extraction configuration
     parser.add_argument(
         "--feature_extractors",
         type=str,
@@ -173,7 +162,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="Whether to interpolate missing values",
     )
 
-    # Data configuration
     parser.add_argument(
         "--symbol",
         type=str,
@@ -197,7 +185,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="Subfolder for output embeddings",
     )
 
-    # Date range
     parser.add_argument(
         "--start_date",
         type=str,
@@ -209,7 +196,6 @@ def parse_args(default_cfg: dict) -> argparse.Namespace:
         help="End date in YYYY-MM-DD format (defaults to today if not provided)",
     )
 
-    # Processing options
     parser.add_argument(
         "--overwrite_existing",
         action=argparse.BooleanOptionalAction,
@@ -238,30 +224,39 @@ def build_embedding_config(args: argparse.Namespace, default_cfg: dict) -> dict:
     """
     base_config = default_cfg["embeddings"]["embedding_config"]
 
-    # Override with command-line arguments if provided
     embedding_config = {
-        "model_type": args.model_type if args.model_type else base_config["model_type"],
-        "model_size": args.model_size if args.model_size else base_config["model_size"],
+        "model_type": (
+            args.model_type if args.model_type is not None else base_config["model_type"]
+        ),
+        "model_size": (
+            args.model_size if args.model_size is not None else base_config["model_size"]
+        ),
         "seq_aggregation": (
-            args.seq_aggregation if args.seq_aggregation else base_config["seq_aggregation"]
+            args.seq_aggregation
+            if args.seq_aggregation is not None
+            else base_config["seq_aggregation"]
         ),
         "feat_aggregation": (
-            args.feat_aggregation if args.feat_aggregation else base_config["feat_aggregation"]
+            args.feat_aggregation
+            if args.feat_aggregation is not None
+            else base_config["feat_aggregation"]
         ),
         "augment_with_statistics": (
             args.augment_with_statistics
             if args.augment_with_statistics is not None
             else base_config["augment_with_statistics"]
         ),
-        "k": args.k if args.k else base_config["k"],
+        "k": args.k if args.k is not None else base_config["k"],
         "use_differencing": (
             args.use_differencing
             if args.use_differencing is not None
             else base_config["use_differencing"]
         ),
-        "device": args.device if args.device else base_config["device"],
-        "batch_size": args.batch_size if args.batch_size else base_config["batch_size"],
-        "stride": args.stride if args.stride else base_config["stride"],
+        "device": args.device if args.device is not None else base_config["device"],
+        "batch_size": (
+            args.batch_size if args.batch_size is not None else base_config["batch_size"]
+        ),
+        "stride": args.stride if args.stride is not None else base_config["stride"],
     }
 
     return embedding_config
@@ -271,21 +266,13 @@ def main() -> None:
     """
     Main function to run the embedding processor.
     """
-    # Load configuration
     default_cfg = load_config()
     args, default_cfg = parse_args(default_cfg)
 
-    # Setup logging
     setup_logging(level=args.log_level)
 
-    logger.info("=" * 80)
-    logger.info("Embedding Processor CLI")
-    logger.info("=" * 80)
-
-    # Build embedding configuration
     embedding_config = build_embedding_config(args, default_cfg)
 
-    # Add disable_tqdm to embedding config if chronos
     if args.embedding_type == "chronos":
         embedding_config["disable_tqdm"] = args.no_tqdm
 
@@ -303,7 +290,6 @@ def main() -> None:
     logger.debug(f"  Output subfolder: {args.output_subfolder}")
     logger.debug(f"  Disable tqdm: {args.no_tqdm}")
 
-    # Initialize processor
     processor = EmbeddingProcessor(
         base_folder=args.data_folder,
         embedding_type=args.embedding_type,
@@ -317,14 +303,12 @@ def main() -> None:
         output_subfolder=args.output_subfolder,
     )
 
-    # Handle dates
     start_date_str = args.start_date
     end_date_str = args.end_date
 
     start_date = date.fromisoformat(start_date_str)
     end_date = date.today() if end_date_str is None else date.fromisoformat(end_date_str)
 
-    # Generate list of dates to process
     dates = [
         (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range((end_date - start_date).days + 1)
@@ -334,7 +318,6 @@ def main() -> None:
     logger.info(f"Symbols: {', '.join(args.symbol)}")
     logger.info(f"Exchanges: {', '.join(args.exchange)}")
 
-    # Process all combinations of symbol, exchange, and date
     total_tasks = len(args.symbol) * len(args.exchange) * len(dates)
     completed = 0
     failed = 0
@@ -368,14 +351,7 @@ def main() -> None:
                         exc_info=True,
                     )
 
-    # Summary
-    logger.info(f"\n{'=' * 80}")
-    logger.info("Processing Complete")
-    logger.info(f"{'=' * 80}")
-    logger.info(f"Total tasks: {total_tasks}")
-    logger.info(f"Completed: {completed}")
-    logger.info(f"Failed: {failed}")
-    logger.info(f"Success rate: {completed / total_tasks * 100:.1f}%")
+    logger.info(f"Processing complete: {completed}/{total_tasks} succeeded, {failed} failed")
 
 
 if __name__ == "__main__":

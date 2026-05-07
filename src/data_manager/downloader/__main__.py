@@ -9,7 +9,7 @@ from definitions import ROOT_DIR
 from utils import setup_logging
 
 
-def load_config():
+def load_config() -> dict:
     """Loads configuration from YAML files."""
     config_path = ROOT_DIR / "config" / "config.yaml"
     data_downloader_config_path = (
@@ -23,7 +23,7 @@ def load_config():
     return config
 
 
-def parse_args(default_cfg):
+def parse_args(default_cfg) -> argparse.Namespace:
     """
     Parse command-line arguments, using defaults from the configuration.
     """
@@ -108,7 +108,7 @@ def main() -> None:
         data_type=args.data_type,
         symbol=args.symbol,
         exchange=args.exchange,
-        date=days,
+        date_val=days,
         skip_existing=not args.overwrite_existing,
         reference_ts=args.reference_ts,
     )

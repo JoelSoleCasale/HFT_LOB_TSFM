@@ -55,7 +55,6 @@ class DataDownloader:
         else:
             self.api_key = cryptohftdata_api_key
 
-        # Initialize API client
         self.api_client = CryptoDataAPIClient(api_key=self.api_key)
 
     def download_data(
@@ -63,10 +62,10 @@ class DataDownloader:
         data_type: str | list[str],
         symbol: str | list[str],
         exchange: str | list[str],
-        date: str | list[str],
+        date_val: str | list[str],
         skip_existing: bool = True,
         reference_ts: Literal["received_time", "event_time"] = "received_time",
-    ):
+    ) -> None:
         """
         Downloads data for the given data types, symbols, exchanges, and dates.
         It iterates through the Cartesian product of all provided lists.
@@ -76,7 +75,7 @@ class DataDownloader:
                 "orderbook", "trades", "ticker", "mark_price", "funding_rates", "open_interest", "liquidations".
             symbol (Union[str, List[str]]): The trading symbol(s) (e.g., 'BTCUSDT').
             exchange (Union[str, List[str]]): The exchange(s) (e.g., 'binance-futures').
-            date (Union[str, List[str]]): The date(s) in 'YYYY-MM-DD' format.
+            date_val (Union[str, List[str]]): The date(s) in 'YYYY-MM-DD' format.
             skip_existing (bool, optional): If True, skips download if the file already exists. Defaults to True.
             reference_ts (Literal["received_time", "event_time"], optional): The timestamp reference to use.
                 Defaults to "received_time". The downloaded data will be sorted by this timestamp.
@@ -97,11 +96,10 @@ class DataDownloader:
 
         symbols = [symbol] if isinstance(symbol, str) else symbol
         exchanges = [exchange] if isinstance(exchange, str) else exchange
-        dates = [date] if isinstance(date, str) else date
+        dates = [date_val] if isinstance(date_val, str) else date_val
 
         for dt, sym, ex, d in itertools.product(data_types, symbols, exchanges, dates):
             try:
-                # Convert string date to date object
                 date_obj = datetime.strptime(d, "%Y-%m-%d").date()
                 request = RawDataRequest(data_type=dt, symbol=sym, exchange=ex, date=date_obj)
 
@@ -136,11 +134,9 @@ class DataDownloader:
         if self.relevant_features and request.data_type in self.relevant_features:
             features_to_keep = self.relevant_features[request.data_type]
             if features_to_keep:
-                # Filter out columns that are not in the dataframe
                 features_to_keep = [col for col in features_to_keep if col in df.columns]
                 df = df[features_to_keep]
 
-        # check if any string can be converted to float
         for col in df.select(pl.col(pl.Utf8)).columns:
             try:
                 df = df.with_columns(pl.col(col).cast(pl.Float64))
@@ -148,7 +144,6 @@ class DataDownloader:
             except Exception:
                 pass
 
-        # sort by reference timestamp
         if reference_ts in df.columns:
             logger.debug(f"Sorting by {reference_ts}")
             df = df.sort(by=reference_ts)
@@ -179,17 +174,14 @@ class DataDownloader:
             Tuple of (hour, success_flag)
         """
         try:
-            # Download hourly data
             df = self.api_client.download_hourly_file(request, hour)
 
             if df is None or len(df) == 0:
                 logger.debug(f"No data for hour {hour}")
                 return (hour, False)
 
-            # Apply basic preprocessing
             df = self._basic_preprocessing(df, request, reference_ts=reference_ts)
 
-            # Save to temporary directory
             temp_file = temp_path / f"hour_{hour:02d}.parquet"
             df.write_parquet(temp_file)
             logger.debug(f"Saved preprocessed hour {hour} to temp file: {temp_file}")
@@ -214,14 +206,11 @@ class DataDownloader:
             f"Downloading {request.data_type} for {request.symbol} on {request.exchange} for {request.date}"
         )
 
-        # Create temporary directory for hourly files
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             logger.debug(f"Using temporary directory: {temp_path}")
 
-            # Use ThreadPoolExecutor for parallel downloading and preprocessing
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit download and preprocessing tasks for all 24 hours
                 futures = []
                 for hour in range(24):
                     future = executor.submit(
@@ -233,7 +222,6 @@ class DataDownloader:
                     )
                     futures.append(future)
 
-                # Wait for all tasks to complete
                 files_processed = 0
                 for future in as_completed(futures):
                     hour, success = future.result()
@@ -252,17 +240,13 @@ class DataDownloader:
                     "Aborting due to strict_download=True."
                 )
 
-            # Merge all hourly files into a single file using lazy scan
             logger.info(f"Merging {files_processed} hourly files into single parquet file")
 
-            # Lazily scan all hourly files
             lf = pl.scan_parquet(str(temp_path / "hour_*.parquet"))
 
-            # Create output directory and save merged file
             file_path = self.base_folder / request.get_path()
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Stream the result directly to the final parquet file
             lf.sink_parquet(str(file_path))
 
             logger.success(f"Saved merged file to disk: {file_path}")
@@ -292,7 +276,6 @@ class DataDownloader:
         Raises:
             FileNotFoundError: If the file doesn't exist on disk.
         """
-        # Convert string date to date object
         date_obj = datetime.strptime(date, "%Y-%m-%d").date() if isinstance(date, str) else date
         request = RawDataRequest(
             data_type=data_type, symbol=symbol, exchange=exchange, date=date_obj
