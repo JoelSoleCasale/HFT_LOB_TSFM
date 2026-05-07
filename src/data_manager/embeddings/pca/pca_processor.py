@@ -20,13 +20,6 @@ class PCAProcessor:
     - Fitting PCA models with specified configurations
     - Caching fitted models to disk
     - Checking for existing models to avoid redundant computation
-
-    Attributes:
-        exchange: Exchange name (e.g., 'binance_futures')
-        symbol: Trading symbol (e.g., 'BTCUSDT')
-        embedding_code: Embedding configuration code (e.g., 'chronos2-base_ctx512_seqlast_s5')
-        base_path: Base directory for embedding data
-        pca_model_path: Base directory for saving PCA models
     """
 
     def __init__(

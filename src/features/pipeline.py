@@ -11,7 +11,7 @@ class FeaturePipeline:
     def __init__(self):
         self.extractors: list[BaseFeatureExtractor] = []
 
-    def add_extractor(self, extractor: BaseFeatureExtractor):
+    def add_extractor(self, extractor: BaseFeatureExtractor) -> "FeaturePipeline":
         self.extractors.append(extractor)
         return self
 

@@ -19,11 +19,9 @@ def compute_patch_statistics(data: np.ndarray, k: int, normalize: bool = True) -
     if data.size == 0:
         raise ValueError("Input data cannot be empty")
 
-    # Normalize data if requested
     if normalize:
         data_mean = data.mean(axis=0, keepdims=True)
         data_std = data.std(axis=0, keepdims=True)
-        # Avoid division by zero
         data_std = np.where(data_std == 0, 1, data_std)
         data = (data - data_mean) / data_std
 
@@ -33,7 +31,6 @@ def compute_patch_statistics(data: np.ndarray, k: int, normalize: bool = True) -
     if patch_size == 0:
         raise ValueError(f"Sequence length ({seq_len}) must be at least k ({k})")
 
-    # Truncate data to ensure equal-sized patches
     truncated_len = patch_size * k
     data = data[:truncated_len]
 
@@ -66,7 +63,7 @@ def compute_differenced_sequence(data: np.ndarray, order: int = 1) -> np.ndarray
     if len(data) <= order:
         raise ValueError(f"Sequence length ({len(data)}) must be greater than order ({order})")
 
-    result = data.copy()
+    result = data
     for _ in range(order):
         result = np.diff(result, axis=0)
 

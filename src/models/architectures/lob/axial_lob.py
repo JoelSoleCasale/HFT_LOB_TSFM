@@ -48,7 +48,7 @@ def _conv1d1x1(in_channels, out_channels):
 
 
 class GatedAxialAttention(nn.Module):
-    def __init__(self, in_channels, out_channels, heads, dim, flag):
+    def __init__(self, in_channels, out_channels, heads, dim, axial_along_width):
         assert (in_channels % heads == 0) and (out_channels % heads == 0)
         super().__init__()
 
@@ -56,7 +56,9 @@ class GatedAxialAttention(nn.Module):
         self.out_channels = out_channels
         self.heads = heads
         self.dim_head_v = out_channels // heads
-        self.flag = flag  # if flag then we do the attention along width
+        self.axial_along_width = (
+            axial_along_width  # if axial_along_width then we do the attention along width
+        )
         self.dim = dim
         self.dim_head_qk = self.dim_head_v // 2
         self.qkv_channels = self.dim_head_v + self.dim_head_qk * 2
@@ -85,7 +87,7 @@ class GatedAxialAttention(nn.Module):
         self.reset_parameters()
 
     def forward(self, x):
-        if self.flag:
+        if self.axial_along_width:
             x = x.permute(0, 2, 1, 3)
         else:
             x = x.permute(0, 3, 1, 2)  # N, W, C, H
@@ -135,7 +137,7 @@ class GatedAxialAttention(nn.Module):
         stacked_output = torch.cat([sv, sve], dim=-1).view(N * W, self.out_channels * 2, H)
         output = self.bn_output(stacked_output).view(N, W, self.out_channels, 2, H).sum(dim=-2)
 
-        if self.flag:
+        if self.axial_along_width:
             output = output.permute(0, 2, 1, 3)
         else:
             output = output.permute(0, 2, 3, 1)
@@ -164,8 +166,8 @@ class AxialLOBModel(FinancialTimeSeriesModel):
         n_heads: int = 4,
         pool_kernel: Tuple[int, int] = (1, 4),
         pool_stride: Tuple[int, int] = (1, 4),
-        sequence_length: int = 40,  # Added to calculate linear layer size
-        dropout: float = 0.0,  # Added to match Config, unused in architecture
+        sequence_length: int = 40,
+        dropout: float = 0.0,
     ):
         super().__init__(input_size, output_size)
 
@@ -191,12 +193,16 @@ class AxialLOBModel(FinancialTimeSeriesModel):
         self.norm2 = nn.BatchNorm2d(c_final)
 
         # Note: In (N, C, F, T), F is Height, T is Width.
-        # axial_height (flag=False) attends over Height (F), so dim should be W (input_size)
-        # axial_width (flag=True) attends over Width (T), so dim should be H (sequence_length)
-        self.axial_height_1 = GatedAxialAttention(c_out, c_out, n_heads, W, flag=False)
-        self.axial_width_1 = GatedAxialAttention(c_out, c_out, n_heads, H, flag=True)
-        self.axial_height_2 = GatedAxialAttention(c_out, c_out, n_heads, W, flag=False)
-        self.axial_width_2 = GatedAxialAttention(c_out, c_out, n_heads, H, flag=True)
+        # axial_height (axial_along_width=False) attends over Height (F), so dim should be W (input_size)
+        # axial_width (axial_along_width=True) attends over Width (T), so dim should be H (sequence_length)
+        self.axial_height_1 = GatedAxialAttention(
+            c_out, c_out, n_heads, W, axial_along_width=False
+        )
+        self.axial_width_1 = GatedAxialAttention(c_out, c_out, n_heads, H, axial_along_width=True)
+        self.axial_height_2 = GatedAxialAttention(
+            c_out, c_out, n_heads, W, axial_along_width=False
+        )
+        self.axial_width_2 = GatedAxialAttention(c_out, c_out, n_heads, H, axial_along_width=True)
 
         self.activation = nn.ReLU()
         self.pooling = nn.AvgPool2d(kernel_size=pool_kernel, stride=pool_stride)
@@ -217,10 +223,7 @@ class AxialLOBModel(FinancialTimeSeriesModel):
         self.linear = nn.Linear(linear_input_size, output_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Handle both 3D and 4D input tensors
         if x.dim() == 3:
-            # Input is (batch, time, features) - add channel dimension
-            # Reshape to (batch, 1, time, features)
             x = x.unsqueeze(1)
         elif x.dim() != 4:
             raise ValueError(
@@ -228,49 +231,37 @@ class AxialLOBModel(FinancialTimeSeriesModel):
                 f"got {x.dim()}D tensor with shape {x.shape}"
             )
 
-        # x shape: (batch, 1, time_steps, features)
         # AxialLOB expects (batch, 1, features, time_steps)
         x = x.permute(0, 1, 3, 2)
 
-        # up branch
-        # first convolution before the attention
         y = self.CNN_in(x)
         y = self.norm(y)
         y = self.activation(y)
 
-        # attention mechanism through gated multi head axial layer
         y = self.axial_width_1(y)
         y = self.axial_height_1(y)
 
-        # lower branch
         x_res = self.CNN_res1(x)
         x_res = self.res_norm1(x_res)
         x_res = self.activation(x_res)
 
-        # first residual
         y = y + x_res
         z = y.detach().clone()
 
-        # second axial layer
         y = self.axial_width_2(y)
         y = self.axial_height_2(y)
 
-        # second convolution
         y = self.CNN_out(y)
         y = self.res_norm2(y)
         y = self.activation(y)
 
-        # lower branch
         z = self.CNN_res2(z)
         z = self.norm2(z)
         z = self.activation(z)
 
-        # second res connection
         y = y + z
 
-        # final part
         y = self.pooling(y)
         y = torch.flatten(y, 1)
         y = self.linear(y)
-        # forecast_y = torch.softmax(y, dim=1) # Softmax is usually handled by CrossEntropyLoss
         return y

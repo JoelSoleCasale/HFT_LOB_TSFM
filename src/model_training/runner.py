@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any, Dict
 from models import (
     ModelConfig,
     MLPConfig,
@@ -20,7 +20,7 @@ def get_architecture_config(
     """Factory for architecture config."""
     model_type = model_type.lower()
     if model_type == "mlp":
-        hidden_sizes = parse_list_arg(params.get("hidden_sizes", [64]), type=int)
+        hidden_sizes = parse_list_arg(params.get("hidden_sizes", [64]), cast=int)
         return MLPConfig(
             input_size=input_size,
             output_size=output_size,
@@ -97,25 +97,16 @@ def get_architecture_config(
     raise ValueError(f"Unknown model type: {model_type}")
 
 
-def run_experiment(config: Dict[str, Any]):
-    """
-    Run a single training experiment based on config dictionary.
-    """
-
-    # 1. Prepare Data
-    # The config passed here is the merged config (global + model specific variant)
+def run_experiment(config: Dict[str, Any]) -> Any:
+    """Run a single training experiment from a merged config dictionary."""
     features, labels, metadata = prepare_data(config)
 
-    # Extract configs
     data_conf = config.get("data", {})
     train_conf = config.get("training", {})
     log_conf = config.get("logging", {})
     model_conf = config.get("model", {})
     label_conf = config.get("labels", {})
 
-    # 2. Build Model Config objects
-
-    # DataConfig
     dc = DataConfig(
         sequence_length=model_conf.get("sequence_length", 1),
         stride=data_conf.get("stride", 5),
@@ -124,14 +115,10 @@ def run_experiment(config: Dict[str, Any]):
         test_split=data_conf.get("test_split", 0.1),
         batch_size=data_conf.get("batch_size", 1024),
         device=data_conf.get("device", "cuda"),
-        # num_classes...
     )
 
-    # TrainingConfig
     loss_params = train_conf.get("loss_params", {})
-    # Inject class weights if focal/weighted loss
     if config.get("use_class_weights", True):
-        # We might want to deep copy to not mutate the passed config
         loss_params = loss_params.copy()
         loss_params["alpha"] = metadata["class_weights"]
 
@@ -146,31 +133,19 @@ def run_experiment(config: Dict[str, Any]):
         mixed_precision=train_conf.get("mixed_precision", False),
     )
 
-    # Architecture
     arch_config = get_architecture_config(
         model_type=model_conf.get("type", "mlp"),
         params=model_conf,
         input_size=metadata["input_size"],
-        output_size=3,  # Assuming 3 classes for now
+        output_size=3,
     )
 
-    # Logging
-    # Construct experiment name dynamically if not provided or to ensure uniqueness?
-    # For now take from config
+    model_type = model_conf.get("type", "")
     exp_name = log_conf.get("experiment_name_prefix", "exp")
-
-    # Add key parameters to experiment name for clarity
     if "hidden_sizes" in model_conf:
         exp_name += f"_mlp{model_conf['hidden_sizes']}"
-    if model_conf.get("type") == "deeplob":
-        exp_name += "_deeplob"
-    if model_conf.get("type") == "ctabl":
-        exp_name += "_ctabl"
-    if model_conf.get("type") == "deeplob_attention":
-        exp_name += "_deeplob_attention"
-    if model_conf.get("type") == "tlob":
-        exp_name += "_tlob"
-
+    elif model_type:
+        exp_name += f"_{model_type}"
     if "pca_components" in data_conf and data_conf["pca_components"]:
         exp_name += f"_pca{data_conf['pca_components']}"
 
@@ -180,8 +155,8 @@ def run_experiment(config: Dict[str, Any]):
         wandb_enabled=log_conf.get("wandb_enabled", True),
         log_confusion_matrix=log_conf.get("log_confusion_matrix", True),
         log_trade_accuracy_vs_threshold=log_conf.get("log_trade_accuracy_vs_threshold", True),
-        lambda_value=float(label_conf.get("threshold", 5e-4)),  # using threshold as lambda usually
-        theta_values=parse_list_arg(log_conf.get("theta_values", "0.0,1e-4,4e-4"), type=float),
+        lambda_value=float(label_conf.get("threshold", 5e-4)),
+        theta_values=parse_list_arg(log_conf.get("theta_values", "0.0,1e-4,4e-4"), cast=float),
     )
 
     # Compile ModelConfig

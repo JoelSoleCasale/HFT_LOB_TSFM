@@ -5,18 +5,11 @@ Provides base classes, concrete extractors, and pipelines
 for transforming raw market data into features and labels.
 """
 
-# Base classes
 from .base.input_space import InputSpace
 from .base.feature_extractor import BaseFeatureExtractor
 from .base.label_extractor import BaseLabelExtractor
-
-# Pipelines
 from .pipeline import FeaturePipeline
-
-# Registries
 from .registry import FeatureExtractorRegistry, LabelExtractorRegistry
-
-# Expose commonly used extractors (optional)
 from .extractors.orderbook_features import (
     MidPriceFeatures,
     OrderbookImbalanceFeatures,
@@ -29,16 +22,12 @@ from .labels.directional_labels import DirectionalLabel, SmoothedDirectionalLabe
 from .labels.barrier_labels import TripleBarrierLabel
 
 __all__ = [
-    # Base
     "InputSpace",
     "BaseFeatureExtractor",
     "BaseLabelExtractor",
-    # Pipelines
     "FeaturePipeline",
-    # Registries
     "FeatureExtractorRegistry",
     "LabelExtractorRegistry",
-    # Common extractors
     "MidPriceFeatures",
     "OrderbookImbalanceFeatures",
     "SpreadFeatures",

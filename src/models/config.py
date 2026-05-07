@@ -96,7 +96,7 @@ class ModelConfig:
 
     # Device configuration
     device: str = "auto"
-    seed: int = None
+    seed: int | None = None
 
     def __post_init__(self):
         """Validate the complete configuration."""
@@ -169,17 +169,13 @@ class ModelConfig:
             yaml.dump(self.to_dict(), f, default_flow_style=False, indent=2)
 
     def get_architecture_config(self) -> ModelArchitectureConfig:
-        """Get the architecture configuration."""
         return self.architecture
 
     def get_training_config(self) -> TrainingConfig:
-        """Get the training configuration."""
         return self.training
 
     def get_data_config(self) -> DataConfig:
-        """Get the data configuration."""
         return self.data
 
     def get_logging_config(self) -> LoggingConfig:
-        """Get the logging configuration."""
         return self.logging

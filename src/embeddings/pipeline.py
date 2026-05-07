@@ -72,17 +72,13 @@ class EmbeddingPipeline:
             raise ValueError("No generators in pipeline")
 
         if len(self.generators) == 1:
-            # Single generator - return directly
-            result = self.generators[0].generate_embeddings_batch(features_df, context_length)
-            return result
+            return self.generators[0].generate_embeddings_batch(features_df, context_length)
 
-        # Multiple generators - combine results
         results = []
         for generator, name in zip(self.generators, self.generator_names):
             logger.info(f"Generating embeddings with {name}")
             embeddings = generator.generate_embeddings_batch(features_df, context_length)
 
-            # Rename columns to include generator name (except timestamp)
             rename_mapping = {
                 col: f"{name}_{col}" if col != "timestamp" else col
                 for col in embeddings.schema.keys()
@@ -90,7 +86,6 @@ class EmbeddingPipeline:
             embeddings = embeddings.rename(rename_mapping)
             results.append(embeddings)
 
-        # Join all results on timestamp
         result = results[0]
         for res in results[1:]:
             result = result.join(res, on="timestamp", how="inner")
@@ -98,10 +93,5 @@ class EmbeddingPipeline:
         return result
 
     def get_all_generator_names(self) -> list[str]:
-        """
-        Get names of all generators in the pipeline.
-
-        Returns:
-            List of generator names
-        """
+        """Return names of all generators in the pipeline."""
         return self.generator_names.copy()

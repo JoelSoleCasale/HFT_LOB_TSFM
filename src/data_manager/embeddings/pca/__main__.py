@@ -1,11 +1,3 @@
-"""
-CLI for precomputing PCA models on embeddings at scale.
-
-This module provides a command-line interface for fitting and caching PCA models
-on pre-generated embeddings, supporting multiple exchanges, symbols, and embedding
-configurations with flexible date ranges.
-"""
-
 import argparse
 from datetime import date
 
@@ -79,7 +71,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         verbose=pca_cfg["verbose"],
     )
 
-    # General arguments
     parser.add_argument(
         "--log_level",
         type=str,
@@ -87,7 +78,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         help="Logging level",
     )
 
-    # PCA configuration
     parser.add_argument(
         "--n_components",
         type=int,
@@ -104,7 +94,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         help="Whether to whiten the transformed components",
     )
 
-    # Data configuration
     parser.add_argument(
         "--exchanges",
         type=str,
@@ -124,7 +113,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         help="Embedding configuration codes to process",
     )
 
-    # Date range
     parser.add_argument(
         "--start_date",
         type=str,
@@ -136,7 +124,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         help="End date for PCA training in YYYY-MM-DD format (defaults to today if not provided)",
     )
 
-    # Paths
     parser.add_argument(
         "--base_path",
         type=str,
@@ -148,7 +135,6 @@ def parse_args(default_cfg: dict) -> tuple[argparse.Namespace, dict]:
         help="Directory to save PCA models (defaults to ROOT_DIR/models/pca)",
     )
 
-    # Processing options
     parser.add_argument(
         "--max_samples",
         type=int,
@@ -173,16 +159,10 @@ def main() -> None:
     """
     Main function to run the PCA processor.
     """
-    # Load configuration
     default_cfg = load_config()
     args, default_cfg = parse_args(default_cfg)
 
-    # Setup logging
     setup_logging(level=args.log_level)
-
-    logger.info("=" * 80)
-    logger.info("PCA Processor CLI")
-    logger.info("=" * 80)
 
     logger.debug("Configuration:")
     logger.debug(f"  n_components: {args.n_components}")
@@ -197,7 +177,6 @@ def main() -> None:
     logger.debug(f"  Max samples: {args.max_samples or 'all'}")
     logger.debug(f"  Force recompute: {args.force_recompute}")
 
-    # Handle dates
     start_date = date.fromisoformat(args.start_date)
     end_date = date.today() if args.end_date is None else date.fromisoformat(args.end_date)
 
@@ -206,7 +185,6 @@ def main() -> None:
     logger.info(f"Symbols: {', '.join(args.symbols)}")
     logger.info(f"Embedding codes: {', '.join(args.embedding_codes)}")
 
-    # Process all combinations of exchange, symbol, and embedding code
     total_tasks = len(args.exchanges) * len(args.symbols) * len(args.embedding_codes)
     completed = 0
     failed = 0
@@ -221,7 +199,6 @@ def main() -> None:
                 logger.info(f"{'=' * 80}")
 
                 try:
-                    # Initialize processor
                     processor = PCAProcessor(
                         exchange=exchange,
                         symbol=symbol,
@@ -230,7 +207,6 @@ def main() -> None:
                         pca_model_path=args.pca_model_path,
                     )
 
-                    # Check if model already exists
                     if not args.force_recompute and processor.model_exists(
                         args.n_components, start_date, end_date
                     ):
@@ -244,7 +220,6 @@ def main() -> None:
                         skipped += 1
                         continue
 
-                    # Create PCA configuration
                     pca_config = PCAConfig(
                         n_components=args.n_components,
                         chunk_size=args.chunk_size,
@@ -252,7 +227,6 @@ def main() -> None:
                         save_path=None,  # Will be set by processor
                     )
 
-                    # Fit PCA
                     pca_processor = processor.fit_pca(
                         config=pca_config,
                         start_date=start_date,
@@ -263,7 +237,7 @@ def main() -> None:
                     )
 
                     logger.info(
-                        f"✓ Successfully fitted PCA for {exchange}/{symbol}/{embedding_code}"
+                        f"Successfully fitted PCA for {exchange}/{symbol}/{embedding_code}"
                     )
                     logger.info(
                         f"  Explained variance: {pca_processor.get_total_explained_variance():.4f}"
@@ -283,18 +257,10 @@ def main() -> None:
                         exc_info=True,
                     )
 
-    # Summary
-    logger.info(f"\n{'=' * 80}")
-    logger.info("Processing Complete")
-    logger.info(f"{'=' * 80}")
-    logger.info(f"Total tasks: {total_tasks}")
-    logger.info(f"Completed: {completed}")
-    logger.info(f"Skipped (already exists): {skipped}")
-    logger.info(f"Failed: {failed}")
     if total_tasks > 0:
         logger.info(
-            f"Success rate: {(completed + skipped) / total_tasks * 100:.1f}% "
-            f"({completed} new, {skipped} existing)"
+            f"Processing complete: {completed} new, {skipped} existing, {failed} failed "
+            f"({(completed + skipped) / total_tasks * 100:.1f}% success rate)"
         )
 
 

@@ -1,6 +1,6 @@
 """Registry for feature and label extractors"""
 
-from typing import Type
+from typing import Any, Type
 from features.base.feature_extractor import BaseFeatureExtractor
 from features.base.label_extractor import BaseLabelExtractor
 
@@ -19,7 +19,7 @@ class FeatureExtractorRegistry:
         return wrapper
 
     @classmethod
-    def create(cls, name: str, config: dict[str, any] = None) -> BaseFeatureExtractor:
+    def create(cls, name: str, config: dict[str, Any] | None = None) -> BaseFeatureExtractor:
         if name not in cls._extractors:
             raise ValueError(f"Unknown extractor: {name}")
         return cls._extractors[name](config)
@@ -43,7 +43,7 @@ class LabelExtractorRegistry:
         return wrapper
 
     @classmethod
-    def create(cls, name: str, config: dict[str, any] = None) -> BaseLabelExtractor:
+    def create(cls, name: str, config: dict[str, Any] | None = None) -> BaseLabelExtractor:
         if name not in cls._extractors:
             raise ValueError(f"Unknown label extractor: {name}")
         return cls._extractors[name](config)

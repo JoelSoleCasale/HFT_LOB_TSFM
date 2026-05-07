@@ -1,5 +1,6 @@
 """Incremental PCA processor for large LazyFrame datasets."""
 
+import math
 import pickle
 from pathlib import Path
 from typing import Any
@@ -80,26 +81,17 @@ class IncrementalPCAProcessor:
             n_components=self.config.n_components, whiten=self.config.whiten, batch_size=None
         )
 
-        # Fit incrementally on all data chunks
-        n_chunks = (total_rows // self.config.chunk_size) + 1
+        n_chunks = math.ceil(total_rows / self.config.chunk_size)
         iterator = iter_slices(data, n_rows=self.config.chunk_size)
 
         if verbose:
             iterator = tqdm(iterator, total=n_chunks, desc="Fitting PCA")
 
         for chunk in iterator:
-            # Collect LazyFrame to DataFrame if needed
             if isinstance(chunk, pl.LazyFrame):
                 chunk = chunk.collect(engine="streaming").gather_every(stride)
 
-            # Load chunk and extract features
-            logger.debug(f"Processing chunk with {chunk.height} rows for PCA fitting...")
-            X_chunk = chunk.select(self.feature_columns)
-            logger.debug(f"Chunk shape: {X_chunk.shape}, converting to numpy array...")
-            X_chunk = X_chunk.to_numpy()
-            logger.debug("Chunk converted to numpy array.")
-
-            # Partial fit on data
+            X_chunk = chunk.select(self.feature_columns).to_numpy()
             self.pca.partial_fit(X_chunk)
 
         self.is_fitted = True
@@ -151,27 +143,22 @@ class IncrementalPCAProcessor:
             iterator = tqdm(iterator, total=n_chunks, desc="Transforming with PCA")
 
         for chunk in iterator:
-            # Collect LazyFrame to DataFrame if needed
             if isinstance(chunk, pl.LazyFrame):
                 chunk = chunk.collect()
-            # Extract features and transform
             X_chunk = chunk.select(self.feature_columns).to_numpy()
             X_transformed = self.pca.transform(X_chunk)
 
             X_transformed_chunks.append(X_transformed)
 
-            # Keep timestamps if requested
             if keep_timestamp:
                 timestamps = chunk.select("timestamp").to_numpy()
                 timestamps_chunks.append(timestamps)
 
-        # Combine transformed chunks
         X_pca = np.vstack(X_transformed_chunks)
 
         if verbose:
             logger.info(f"PCA transformation complete. New shape: {X_pca.shape}")
 
-        # Create LazyFrame with PCA features
         pca_col_names = [f"pca_{i}" for i in range(self.config.n_components)]
         result_dict: dict[str, Any] = {}
 
@@ -270,10 +257,8 @@ class IncrementalPCAProcessor:
         if save_path is None:
             raise ValueError("No save path provided. Set config.save_path or pass path argument.")
 
-        # Ensure parent directory exists
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save PCA object and metadata
         state = {
             "pca": self.pca,
             "config": self.config,
@@ -310,7 +295,6 @@ class IncrementalPCAProcessor:
         with open(path, "rb") as f:
             state = pickle.load(f)
 
-        # Create processor with saved config
         processor = cls(config=state["config"])
         processor.pca = state["pca"]
         processor.feature_columns = state["feature_columns"]
@@ -321,7 +305,6 @@ class IncrementalPCAProcessor:
         return processor
 
     def __repr__(self) -> str:
-        """String representation."""
         status = "fitted" if self.is_fitted else "not fitted"
         return (
             f"IncrementalPCAProcessor("

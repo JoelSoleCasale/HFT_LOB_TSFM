@@ -2,6 +2,7 @@
 Registry and factory system for model components.
 """
 
+import torch
 import torch.nn as nn
 import torch.optim as optim
 
@@ -121,7 +122,7 @@ def create_optimizer(
 
 def create_scheduler(
     scheduler_name: str | None, optimizer: optim.Optimizer, scheduler_params: dict, **kwargs
-) -> optim.lr_scheduler._LRScheduler | None:
+) -> torch.optim.lr_scheduler.LRScheduler | None:
     """
     Create a learning rate scheduler from the registry.
 
@@ -168,7 +169,7 @@ def create_scheduler(
     return scheduler_class(optimizer, **scheduler_kwargs)
 
 
-def create_criterion(loss_name: str, loss_params: dict = None, **kwargs) -> nn.Module:
+def create_criterion(loss_name: str, loss_params: dict | None = None, **kwargs) -> nn.Module:
     """
     Create a loss function from the registry.
 

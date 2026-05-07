@@ -8,7 +8,7 @@ from features.base.input_space import InputSpace
 class BaseFeatureExtractor(ABC):
     """Abstract base for all feature extractors"""
 
-    def __init__(self, config: dict[str, object] = None):
+    def __init__(self, config: dict[str, object] | None = None):
         self.config = config or {}
         self.feature_names: list[str] = []
         self.dependencies: list[str] = []  # which InputSpace attributes needed

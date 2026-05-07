@@ -259,37 +259,30 @@ class TLOBModel(FinancialTimeSeriesModel):
         if x.dim() != 3:
             raise ValueError(f"Expected 3D input (batch, sequence, features), got shape {x.shape}")
 
-        # Ensure correct input shape
         batch_size, seq_len, features = x.shape
         if seq_len != self.seq_size:
             raise ValueError(f"Expected sequence length {self.seq_size}, got {seq_len}")
         if features != self.num_features:
             raise ValueError(f"Expected {self.num_features} features, got {features}")
 
-        # Bilinear normalization: (batch, seq, features) -> (batch, features, seq)
         x = rearrange(x, "b s f -> b f s")
         x = self.norm_layer(x)
         x = rearrange(x, "b f s -> b s f")
 
-        # Feature embedding
         x = self.emb_layer(x)
 
-        # Add positional encoding
         if self.is_sin_emb:
             x = x + self.pos_encoder.unsqueeze(0)
         else:
             x = x + self.pos_encoder
 
-        # Apply transformer layers (alternating feature and temporal)
         for i in range(len(self.layers)):
             x, att = self.layers[i](x)
-            # Transpose for next layer (alternates between feature and temporal)
+            # Transpose for next layer (alternates between feature and temporal processing)
             x = x.permute(0, 2, 1)
 
-        # Flatten for final projection
         x = rearrange(x, "b s f -> b (f s)")
 
-        # Final MLP layers
         for layer in self.final_layers:
             x = layer(x)
 

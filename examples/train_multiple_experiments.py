@@ -15,10 +15,11 @@ Usage:
     python train_multiple_experiments.py --experiments 2 3 4
 """
 
-from pathlib import Path
 from datetime import date, timedelta
 import warnings
 import argparse
+
+from loguru import logger
 
 from features import (
     InputSpace,
@@ -35,8 +36,7 @@ from models import (
     LoggingConfig,
     train_model,
 )
-from utils import date_range
-from definitions import ROOT_DIR
+from utils import date_range, get_ob_path
 from core.orderbook import OrderBook
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
@@ -54,16 +54,7 @@ def load_data(first_date: date, n_days: int, sample_interval: int = 100_000_000)
     Returns:
         Tuple of (features, labels, label_counts, total_samples)
     """
-    print(f"\n{'='*80}")
-    print(f"Loading orderbook data from {first_date} for {n_days} day(s)...")
-    print(f"{'='*80}")
-
-    # Load orderbook data
-    def get_ob_path(d: date) -> Path:
-        return (
-            ROOT_DIR
-            / f'data/orderbook_snapshots/binance_futures/BTCUSDT/{d.strftime("%Y-%m-%d")}_L20.parquet'
-        )
+    logger.info(f"Loading orderbook data from {first_date} for {n_days} day(s)...")
 
     ob_paths = [
         get_ob_path(d) for d in date_range(first_date, first_date + timedelta(days=n_days - 1))
@@ -74,39 +65,35 @@ def load_data(first_date: date, n_days: int, sample_interval: int = 100_000_000)
         .sample_by_time(time_delta=sample_interval, interpolate=True)
     )
 
-    # Ignore first second
+    # Skip first 10 samples (first second) via private attribute — OrderBook has no
+    # public slice API that rewrites the internal frame without re-validation.
     orderbook_data._data._df = orderbook_data.df[10:]
 
-    print("Creating input space and feature pipeline...")
+    logger.info("Creating input space and feature pipeline...")
 
-    # Create input space
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
 
-    # Build feature pipeline
     feature_pipeline = FeaturePipeline()
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
-    # Build label pipeline
     directional_return_label = DirectionalLabel(config={"horizon": 200, "threshold": 3e-4})
 
-    print("Extracting features and labels...")
+    logger.info("Extracting features and labels...")
 
-    # Extract features and labels
     features = feature_pipeline.extract_all(input_space)
     labels = directional_return_label.extract(input_space)
 
-    print(f"Features shape: {features.collect().shape}")
-    print(f"Labels shape: {labels.collect().shape}")
+    logger.info(f"Features shape: {features.collect().shape}")
+    logger.info(f"Labels shape: {labels.collect().shape}")
 
-    # Calculate label distribution
     labels_df = labels.collect()
     label_counts = labels_df[directional_return_label.label_names[0]].value_counts()
     total_samples = len(labels_df)
 
-    print("\nLabel distribution:")
+    logger.info("Label distribution:")
     for label_value, count in label_counts.iter_rows():
         percentage = (count / total_samples) * 100
-        print(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
+        logger.info(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
 
     return features, labels, label_counts, total_samples
 
@@ -176,7 +163,7 @@ def create_experiment_configs(
             log_trade_accuracy_vs_threshold=True,
         )
 
-    # Experiment 0: small LSTM
+    # Experiment 1: small LSTM
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -194,7 +181,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 0: small LSTM 2
+    # Experiment 2: small LSTM wider
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -212,7 +199,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 1: LSTM with attention
+    # Experiment 3: LSTM with attention
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -230,7 +217,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 2: LSTM without attention
+    # Experiment 4: LSTM without attention
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -248,7 +235,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 3: Transformer
+    # Experiment 5: Transformer
     experiments.append(
         ModelConfig(
             architecture=TransformerConfig(
@@ -283,7 +270,7 @@ def create_experiment_configs(
         )
     )
 
-    # Experiment 4: LSTM with longer sequence
+    # Experiment 6: LSTM with longer sequence
     experiments.append(
         ModelConfig(
             architecture=LSTMConfig(
@@ -307,39 +294,6 @@ def create_experiment_configs(
             logging=get_logging_config("lstm_attention_seq512"),
         )
     )
-
-    # # Experiment 5: Deep LSTM
-    # experiments.append(
-    #     ModelConfig(
-    #         architecture=LSTMConfig(
-    #             input_size=input_size,
-    #             hidden_size=128,
-    #             num_layers=4,
-    #             output_size=3,
-    #             dropout=0.3,
-    #             bidirectional=True,
-    #             attention=True,
-    #         ),
-    #         data=data_config,
-    #         training=train_config,
-    #         logging=get_logging_config("lstm_deep4_attention_seq256"),
-    #     )
-    # )
-
-    # # Experiment 6: MLP
-    # experiments.append(
-    #     ModelConfig(
-    #         architecture=MLPConfig(
-    #             input_size=input_size * data_config.sequence_length,  # Flattened input
-    #             output_size=3,
-    #             hidden_sizes=[256, 128, 64],
-    #             dropout=0.2,
-    #         ),
-    #         data=data_config,
-    #         training=train_config,
-    #         logging=get_logging_config("mlp_seq1"),
-    #     )
-    # )
 
     return experiments
 
@@ -366,9 +320,7 @@ def run_experiments(
     Returns:
         List of (trainer, results) tuples for each experiment
     """
-    # Determine which experiments to run
     if selected_indices is not None:
-        # Validate indices
         invalid_indices = [i for i in selected_indices if i < 1 or i > len(experiments)]
         if invalid_indices:
             raise ValueError(
@@ -377,34 +329,26 @@ def run_experiments(
             )
 
         experiments_to_run = [(i, experiments[i - 1]) for i in sorted(selected_indices)]
-        print(f"\n{'='*80}")
-        print(f"Running {len(experiments_to_run)} selected experiments: {selected_indices}")
-        print(f"{'='*80}\n")
+        logger.info(f"Running {len(experiments_to_run)} selected experiments: {selected_indices}")
     else:
         experiments_to_run = [(i, exp) for i, exp in enumerate(experiments, 1)]
-        print(f"\n{'='*80}")
-        print(f"Running all {len(experiments)} experiments sequentially")
-        print(f"{'='*80}\n")
+        logger.info(f"Running all {len(experiments)} experiments sequentially")
 
     results_list = []
 
     for experiment_num, (idx, config) in enumerate(experiments_to_run, 1):
-        print(f"\n{'='*80}")
-        print(
+        logger.info(
             f"EXPERIMENT {experiment_num}/{len(experiments_to_run)} "
             f"(#{idx}): {config.get_logging_config().experiment_name}"
         )
-        print(f"{'='*80}")
-        print(f"Architecture: {config.get_architecture_config().__class__.__name__}")
-        print(f"Sequence Length: {config.get_data_config().sequence_length}")
-        print(f"Batch Size: {config.get_data_config().batch_size}")
-        print(f"Learning Rate: {config.get_training_config().learning_rate}")
-        print(f"Optimizer: {config.get_training_config().optimizer}")
-        print(f"Max Epochs: {config.get_training_config().num_epochs}")
-        print(f"{'='*80}\n")
+        logger.info(f"Architecture: {config.get_architecture_config().__class__.__name__}")
+        logger.info(f"Sequence Length: {config.get_data_config().sequence_length}")
+        logger.info(f"Batch Size: {config.get_data_config().batch_size}")
+        logger.info(f"Learning Rate: {config.get_training_config().learning_rate}")
+        logger.info(f"Optimizer: {config.get_training_config().optimizer}")
+        logger.info(f"Max Epochs: {config.get_training_config().num_epochs}")
 
         try:
-            # Train the model
             trainer, results = train_model(
                 features=features,
                 labels=labels,
@@ -414,23 +358,17 @@ def run_experiments(
             )
 
             results_list.append((idx, trainer, results))
-
-            print(f"\n{'='*80}")
-            print(f"EXPERIMENT {experiment_num} (#{idx}) COMPLETED SUCCESSFULLY")
-            print(f"{'='*80}\n")
+            logger.info(f"EXPERIMENT {experiment_num} (#{idx}) COMPLETED SUCCESSFULLY")
 
         except Exception as e:
-            print(f"\n{'='*80}")
-            print(f"EXPERIMENT {experiment_num} (#{idx}) FAILED WITH ERROR:")
-            print(f"{str(e)}")
-            print(f"{'='*80}\n")
+            logger.error(f"EXPERIMENT {experiment_num} (#{idx}) FAILED WITH ERROR: {e}")
             results_list.append((idx, None, None))
             continue
 
     return results_list
 
 
-def print_summary(results_list: list, experiments: list[ModelConfig]):
+def print_summary(results_list: list, experiments: list[ModelConfig]) -> None:
     """
     Print summary of all experiments.
 
@@ -438,46 +376,40 @@ def print_summary(results_list: list, experiments: list[ModelConfig]):
         results_list: List of (idx, trainer, results) tuples
         experiments: List of ModelConfig objects
     """
-    print(f"\n{'='*80}")
-    print("EXPERIMENT SUMMARY")
-    print(f"{'='*80}\n")
+    logger.info("EXPERIMENT SUMMARY")
 
     for idx, trainer, results in results_list:
         config = experiments[idx - 1]
         exp_name = config.get_logging_config().experiment_name
 
         if results is None:
-            print(f"{idx}. {exp_name}: FAILED")
+            logger.info(f"{idx}. {exp_name}: FAILED")
         else:
             test_acc = results.get("test_accuracy", "N/A")
             test_trade_acc = results.get("test_trade_accuracy", "N/A")
             test_strict_trade_acc = results.get("test_strict_trade_accuracy", "N/A")
 
-            print(f"{idx}. {exp_name}:")
-            print(
+            logger.info(f"{idx}. {exp_name}:")
+            logger.info(
                 f"   Test Accuracy: {test_acc:.4f}"
                 if test_acc != "N/A"
                 else f"   Test Accuracy: {test_acc}"
             )
-            print(
+            logger.info(
                 f"   Trade Accuracy: {test_trade_acc:.4f}"
                 if test_trade_acc != "N/A"
                 else f"   Trade Accuracy: {test_trade_acc}"
             )
-            print(
+            logger.info(
                 f"   Strict Trade Accuracy: {test_strict_trade_acc:.4f}"
                 if test_strict_trade_acc != "N/A"
                 else f"   Strict Trade Accuracy: {test_strict_trade_acc}"
             )
-            print()
-
-    print(f"{'='*80}\n")
 
 
-def main():
+def main() -> None:
     """Main function for running multiple experiments."""
 
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description="Run multiple model training experiments sequentially.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -521,47 +453,37 @@ Examples:
 
     args = parser.parse_args()
 
-    # Data loading configuration
     FIRST_DATE = date(2025, 7, 1)
     N_DAYS = 10
     SAMPLE_INTERVAL = 100_000_000  # nanoseconds
 
-    # Load data once (shared across all experiments)
     features, labels, label_counts, total_samples = load_data(
         first_date=FIRST_DATE,
         n_days=N_DAYS,
         sample_interval=SAMPLE_INTERVAL,
     )
 
-    # Calculate class weights
     class_weights = calculate_class_weights(label_counts, total_samples)
 
-    # Get input size
     input_size = len(features.columns) - 1  # exclude timestamp
 
-    # Create experiment configurations
     experiments = create_experiment_configs(input_size, class_weights, use_tqdm=not args.no_tqdm)
 
-    print(f"\n{'='*80}")
-    print(f"Total experiments defined: {len(experiments)}")
-    print(f"{'='*80}")
+    logger.info(f"Total experiments defined: {len(experiments)}")
 
-    # List experiments if requested
     if args.list:
-        print("\nAvailable experiments:")
+        logger.info("Available experiments:")
         for i, config in enumerate(experiments, 1):
             arch = config.get_architecture_config().__class__.__name__
             exp_name = config.get_logging_config().experiment_name
             seq_len = config.get_data_config().sequence_length
             batch_size = config.get_data_config().batch_size
             lr = config.get_training_config().learning_rate
-            print(f"  {i}. {exp_name}")
-            print(f"     Architecture: {arch}")
-            print(f"     Sequence Length: {seq_len}, Batch Size: {batch_size}, LR: {lr}")
-        print(f"\n{'='*80}\n")
+            logger.info(f"  {i}. {exp_name}")
+            logger.info(f"     Architecture: {arch}")
+            logger.info(f"     Sequence Length: {seq_len}, Batch Size: {batch_size}, LR: {lr}")
         return
 
-    # Run all experiments or selected ones
     results_list = run_experiments(
         features=features,
         labels=labels,
@@ -571,10 +493,9 @@ Examples:
         label_columns=None,
     )
 
-    # Print summary
     print_summary(results_list, experiments)
 
-    print("\nAll experiments completed!")
+    logger.info("All experiments completed!")
 
 
 if __name__ == "__main__":

@@ -18,22 +18,19 @@ from loguru import logger
 from definitions import ROOT_DIR
 
 
-def setup_logging(log_file: str | Path = None, level: str = "INFO") -> None:
+def setup_logging(log_file: str | Path | None = None, level: str = "INFO") -> None:
     """
     Set up loguru logging configuration.
 
-    Args:
-        log_file: Path to log file
-        level: Logging level
+    Console format uses colorized YYYY-MM-DD HH:mm:ss timestamps.
+    File handler rotates at 10 MB and retains logs for 7 days.
     """
     if log_file is None:
         log_file = Path(ROOT_DIR / "logs" / "logfile.log")
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Remove default handler
     logger.remove()
 
-    # Add console handler
     logger.add(
         lambda msg: print(msg, end=""),
         level=level,
@@ -41,7 +38,6 @@ def setup_logging(log_file: str | Path = None, level: str = "INFO") -> None:
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     )
 
-    # Add file handler
     logger.add(
         log_file,
         level=level,
@@ -64,16 +60,11 @@ def cache_func(
     func: Callable[[DataRequest], pl.DataFrame | None],
     cache_root: Path,
     load_cached_data: bool = True,
-) -> tuple[Callable[[DataRequest], pl.DataFrame | None], bool]:
-    """Decorator to cache function output to a Parquet file.
-    If the file exists, load from it instead of calling the function.
-    Args:
-        func (Callable[[DataRequest], pl.DataFrame]): Function to be decorated.
-        cache_root (Path): Root directory for caching.
-        load_cached_data (bool, optional): If True, load from cache if available.
-    Returns:
-        Callable[[DataRequest], pl.DataFrame]: Decorated function with caching.
-        bool: True if data was loaded from cache, False if function was called.
+) -> Callable[[DataRequest], tuple[pl.DataFrame | None, bool]]:
+    """Wrap *func* with Parquet caching.
+
+    The returned callable returns ``(result, from_cache)`` where ``from_cache``
+    is True when data was loaded from an existing file rather than recomputed.
     """
 
     def wrapper(request: DataRequest, *args, **kwargs) -> pl.DataFrame:
@@ -101,6 +92,14 @@ def date_range(start_date: date, end_date: date) -> Iterator[date]:
         current_date += timedelta(days=1)
 
 
+def get_ob_path(d: date) -> Path:
+    """Return the canonical path for a BTCUSDT L20 orderbook snapshot parquet file."""
+    return (
+        ROOT_DIR
+        / f'data/orderbook_snapshots/binance_futures/BTCUSDT/{d.strftime("%Y-%m-%d")}_L20.parquet'
+    )
+
+
 def get_hftbacktest_array(
     df: pl.DataFrame,
     df_time_unit: Literal["s", "ms", "us", "ns"] = "ms",
@@ -112,19 +111,15 @@ def get_hftbacktest_array(
     """
     arr = np.zeros(len(df), dtype=event_dtype)
 
-    # Use vectorized operations to determine event types
     is_snapshot = (df["event_type"] == "snapshot").to_numpy()
     is_ask = (df["side"] == "ask").to_numpy()
 
-    # Set event type values with numpy's where (no loops)
     arr["ev"] = np.where(
         is_snapshot,
         DEPTH_SNAPSHOT_EVENT,
         DEPTH_EVENT | np.where(is_ask, SELL_EVENT, BUY_EVENT) | EXCH_EVENT | LOCAL_EVENT,
     )
 
-    # Directly set other fields from the dataframe
-    # Convert time units
     time_factors = {"s": 1_000_000_000, "ms": 1_000_000, "us": 1_000, "ns": 1}
     time_multiplier = time_factors[df_time_unit] // time_factors[target_time_unit]
     arr["exch_ts"] = (df["event_time"].to_numpy() * time_multiplier).astype(np.int64)

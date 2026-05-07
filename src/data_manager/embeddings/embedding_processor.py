@@ -1,11 +1,3 @@
-"""
-Embedding processor for generating embeddings from orderbook data at scale.
-
-This module processes orderbook snapshots by extracting features and computing embeddings
-in hourly chunks with overlapping context windows to avoid memory issues. Each hour is
-saved separately as a parquet file for efficient storage and later retrieval.
-"""
-
 from pathlib import Path
 import polars as pl
 from loguru import logger
@@ -16,16 +8,7 @@ from features import InputSpace, FeaturePipeline, FeatureExtractorRegistry
 
 
 class EmbeddingProcessor:
-    """
-    Processes orderbook data to generate embeddings with hourly granularity.
-
-    This processor handles large-scale embedding generation by:
-    1. Loading orderbook data lazily from parquet files
-    2. Extracting features using configurable extractors
-    3. Processing hourly chunks with context from previous hours
-    4. Streaming results to disk without holding full day in memory
-    5. Supporting multiple days with proper context propagation
-    """
+    """Processes orderbook data to generate embeddings with hourly granularity."""
 
     def __init__(
         self,
@@ -65,14 +48,12 @@ class EmbeddingProcessor:
         self.embedding_type = embedding_type
         self.embedding_config = embedding_config
 
-        # Create feature extraction pipeline
         self.feature_pipeline = FeaturePipeline()
         for extractor_name in feature_extractors:
             extractor = FeatureExtractorRegistry.create(extractor_name)
             self.feature_pipeline.add_extractor(extractor)
             logger.info(f"Added feature extractor: {extractor_name}")
 
-        # Create embedding pipeline
         embedding_generator = EmbeddingGeneratorRegistry.create(
             embedding_type, config=embedding_config
         )
@@ -92,14 +73,13 @@ class EmbeddingProcessor:
         Returns:
             String encoding key configuration parameters
         """
-        # Extract relevant config parameters
         model_type = self.embedding_config.get("model_type", "unknown")
         model_size = self.embedding_config.get("model_size", "unknown")
         seq_agg = self.embedding_config.get("seq_aggregation", "last")
         use_diff = self.embedding_config.get("use_differencing", False)
         stride = self.embedding_config.get("stride", 1)
 
-        # Build config string with format: type-size_ctx<length>_seq<agg>_diff<bool>_s<stride>
+        # Format: type-size_ctx<length>_seq<agg>[_diff][_s<stride>]
         config_parts = [
             f"{model_type}-{model_size}",
             f"ctx{self.context_length}",
@@ -236,7 +216,7 @@ class EmbeddingProcessor:
         hour_start_ns: int,
         hour_end_ns: int,
         context_start_ns: int,
-    ) -> pl.LazyFrame:
+    ) -> pl.LazyFrame | None:
         """
         Process a single hour of data to generate embeddings.
 
@@ -248,7 +228,7 @@ class EmbeddingProcessor:
             context_start_ns: Start timestamp for context window (nanoseconds)
 
         Returns:
-            LazyFrame with embeddings for this hour
+            LazyFrame with embeddings for this hour, or None if no data
         """
         # Filter to context window + current hour using lazy operations
         # This includes context_length samples before the hour if available
@@ -256,7 +236,6 @@ class EmbeddingProcessor:
             (pl.col("timestamp") >= context_start_ns) & (pl.col("timestamp") < hour_end_ns)
         )
 
-        # Collect to generate embeddings (unavoidable - model needs materialized data)
         hour_df = hour_with_context.collect()
 
         if hour_df.height == 0:
@@ -415,21 +394,9 @@ class EmbeddingProcessor:
                 skipped_errors.append(hour)
                 continue
 
-        # Summary logging
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Processing summary for {date_str}:")
         logger.info(
-            f"  Successfully processed: {len(processed)} hours {processed if processed else ''}"
+            f"Done {date_str}: {len(processed)} processed, "
+            f"{len(skipped_existing)} skipped, {len(skipped_no_data)} no data, "
+            f"{len(skipped_errors)} errors"
         )
-        if skipped_existing:
-            logger.info(
-                f"  Skipped (already exist): {len(skipped_existing)} hours {skipped_existing}"
-            )
-        if skipped_no_data:
-            logger.warning(f"  Skipped (no data): {len(skipped_no_data)} hours {skipped_no_data}")
-        if skipped_errors:
-            logger.error(f"  Failed (errors): {len(skipped_errors)} hours {skipped_errors}")
-        logger.info(f"{'='*60}\n")
-
-        logger.info(f"Completed processing {date_str}")
         return True

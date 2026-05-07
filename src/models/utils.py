@@ -95,7 +95,7 @@ def load_model(
     return model, config, metadata
 
 
-def set_seed(seed: int = None) -> None:
+def set_seed(seed: int | None = None) -> None:
     """
     Set random seed for reproducibility.
 

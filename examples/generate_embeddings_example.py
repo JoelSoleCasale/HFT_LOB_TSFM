@@ -1,10 +1,9 @@
 import polars as pl
 from datetime import date, timedelta
-from pathlib import Path
 from loguru import logger
 
 from definitions import ROOT_DIR
-from utils import date_range
+from utils import date_range, get_ob_path
 from core.orderbook import OrderBook
 from features import (
     InputSpace,
@@ -14,27 +13,13 @@ from features import (
 from embeddings import EmbeddingPipeline
 
 
-def get_ob_path(date: date) -> Path:
-    """Get path to orderbook parquet file for a given date."""
-    return (
-        ROOT_DIR
-        / f'data/orderbook_snapshots/binance_futures/BTCUSDT/{date.strftime("%Y-%m-%d")}_L20.parquet'
-    )
-
-
-def main():
+def main() -> None:
     """Main function to generate embeddings."""
-    # Configuration
     FIRST_DATE = date(2025, 7, 1)
     N_DAYS = 1
-    N_SAMPLES = 10_000  # Number of embeddings to generate
-    CONTEXT_LENGTH = 512  # Number of samples to use as context for each embedding
+    N_SAMPLES = 10_000
+    CONTEXT_LENGTH = 512
 
-    logger.info("=" * 80)
-    logger.info("Generating Embeddings Example")
-    logger.info("=" * 80)
-
-    # Load orderbook data
     logger.info(f"Loading orderbook data from {FIRST_DATE} for {N_DAYS} day(s)...")
     ob_paths = [
         get_ob_path(d) for d in date_range(FIRST_DATE, FIRST_DATE + timedelta(days=N_DAYS))
@@ -42,36 +27,30 @@ def main():
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
-        .sample_by_time(time_delta=100_000_000, interpolate=True)  # Sample every 100ms
+        .sample_by_time(time_delta=100_000_000, interpolate=True)
     )
 
-    # Ignore first second
+    # Skip first 10 samples (first second) via private attribute — OrderBook has no
+    # public slice API that rewrites the internal frame without re-validation.
     orderbook_data._data._df = orderbook_data.df[10:]
 
-    # Create input space
     logger.info("Creating input space and feature pipeline...")
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
 
-    # Build feature pipeline using registry
     feature_pipeline = FeaturePipeline()
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
-    # Extract features
     logger.info("Extracting features...")
     features: pl.LazyFrame = feature_pipeline.extract_all(input_space)
 
-    # Get schema info without collecting full data
     features_schema = features.collect_schema()
     logger.info(f"Features columns: {len(features_schema)}")
 
-    # Limit to N_SAMPLES + CONTEXT_LENGTH to ensure we have enough data
-    # Use slice to limit rows lazily (keeps it as LazyFrame)
     max_samples = N_SAMPLES + CONTEXT_LENGTH
     features_subset = features.slice(0, max_samples)
 
     logger.info(f"Using up to {max_samples} samples for embedding generation")
 
-    # Configure embedding parameters
     embed_config = {
         "context_length": CONTEXT_LENGTH,
         "model_type": "bolt",
@@ -85,9 +64,7 @@ def main():
 
     logger.info("Creating embedding pipeline...")
     logger.info(f"Embedding config: {embed_config}")
-    logger.info(f"Using context length of {CONTEXT_LENGTH} samples for each embedding")
 
-    # Create embedding pipeline
     embedding_pipeline = EmbeddingPipeline()
     embedding_pipeline.add_generator(
         "chronos",
@@ -103,28 +80,22 @@ def main():
         },
     )
 
-    # Generate embeddings
     logger.info("Generating embeddings...")
     embeddings = embedding_pipeline.generate(
         features_subset, context_length=embed_config["context_length"]
     )
 
-    # Collect embeddings
     embeddings_df = embeddings.collect()
 
     logger.info(f"Generated {len(embeddings_df)} embeddings")
     logger.info(f"Embeddings shape: {embeddings_df.shape}")
 
-    # Embeddings should already have timestamp from the generator
-    # Verify timestamp is present
     if "timestamp" not in embeddings_df.columns:
         logger.error("Embeddings do not contain 'timestamp' column!")
 
-    # Save embeddings
     output_dir = ROOT_DIR / "data" / "embeddings"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create filename similar to notebook
     stats_suffix = "_stats" if embed_config["augment_with_statistics"] else ""
     diff_suffix = "_diff" if embed_config["use_differencing"] else ""
     filename = (
@@ -137,16 +108,11 @@ def main():
     logger.info(f"Saving embeddings to {output_path}")
     embeddings_df.write_parquet(output_path)
 
-    logger.info("=" * 80)
     logger.info("Embedding generation complete!")
     logger.info(f"Saved {len(embeddings_df)} embeddings to {output_path}")
-    logger.info("=" * 80)
-
-    # Print some statistics
-    logger.info("\nEmbedding statistics:")
     logger.info(f"  - Number of embeddings: {len(embeddings_df)}")
-    logger.info(f"  - Embedding dimension: {len(embeddings_df.columns) - 1}")  # Exclude timestamp
-    logger.info(f"  - Feature columns: {len(features_schema) - 1}")  # Exclude timestamp
+    logger.info(f"  - Embedding dimension: {len(embeddings_df.columns) - 1}")
+    logger.info(f"  - Feature columns: {len(features_schema) - 1}")
 
     return embeddings_df, output_path
 

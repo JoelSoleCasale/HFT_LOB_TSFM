@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from datetime import date, timedelta
 import polars as pl
@@ -12,6 +13,11 @@ from core.orderbook import OrderBook
 from features import InputSpace, TripleBarrierLabel, FeaturePipeline, FeatureExtractorRegistry
 from data_manager.embeddings.pca import PCAProcessor
 
+_DEFAULT_EMBEDDING_DIR = os.environ.get(
+    "EMBEDDING_DATA_DIR",
+    str(ROOT_DIR / "data" / "embeddings"),
+)
+
 
 def get_embeddings_paths(
     str_code: str,
@@ -19,18 +25,14 @@ def get_embeddings_paths(
     end_date: date,
     exchange: str = "binance_futures",
     symbol: str = "BTCUSDT",
-    base_path: str = "/scratch/PI/palomar/joel_sole/embedding_data",
+    base_path: str = _DEFAULT_EMBEDDING_DIR,
 ) -> List[Path]:
     """
     Get list of embedding parquet file paths for specified date range.
     """
     dir_path = Path(base_path) / exchange / symbol / str_code
-    if not dir_path.exists():
-        # Fallback or check if user provided full path or relative
-        pass
 
     paths = []
-    # Check if dir_path exists, if not maybe log but the loop handles checking files
     if not dir_path.exists():
         logger.warning(f"Embedding directory not found: {dir_path}")
 
@@ -41,11 +43,6 @@ def get_embeddings_paths(
             file_path = dir_path / f"{date_str}-{hour:02d}.parquet"
             if file_path.exists():
                 paths.append(file_path)
-
-    if not paths:
-        # Just return empty, caller handles error or we raise
-        # The original code raises FileNotFoundError
-        pass
 
     return sorted(paths)
 
@@ -88,18 +85,16 @@ def apply_pca_reduction(
     data_end_date: date,
     exchange: str = "binance_futures",
     symbol: str = "BTCUSDT",
-    base_path: str = "/scratch/PI/palomar/joel_sole/embedding_data",
+    base_path: str = _DEFAULT_EMBEDDING_DIR,
 ) -> Tuple[pl.LazyFrame, int]:
     """
     Apply PCA dimensionality reduction using pre-computed PCA model.
     Results are cached to disk to avoid repeated computations.
     """
-    # Get embedding columns (all except timestamp)
     all_cols = embeddings.collect_schema().names()
     embedding_cols = [col for col in all_cols if col != "timestamp"]
     original_size = len(embedding_cols)
 
-    # Define cache path
     cache_dir = Path(base_path) / exchange / symbol / "PCA" / f"{embedding_code}_pca{n_components}"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -108,7 +103,6 @@ def apply_pca_reduction(
     )
     cache_path = cache_dir / cache_filename
 
-    # Check if cached file exists
     if cache_path.exists():
         logger.info(f"Loading cached PCA-reduced embeddings from: {cache_path}")
         reduced_embeddings = pl.scan_parquet(cache_path)
@@ -121,7 +115,6 @@ def apply_pca_reduction(
         f"Cache not found. Applying PCA dimensionality reduction from {original_size} to {n_components} components..."
     )
 
-    # Initialize PCA processor
     pca_processor = PCAProcessor(
         exchange=exchange,
         symbol=symbol,
@@ -129,7 +122,6 @@ def apply_pca_reduction(
         base_path=base_path,
     )
 
-    # Load pre-computed PCA model
     logger.info(
         f"Loading pre-computed PCA model for training period: "
         f"{train_start_date} to {train_end_date}"
@@ -148,25 +140,20 @@ def apply_pca_reduction(
         )
         raise
 
-    # Transform embeddings using loaded PCA
     logger.info("Transforming embeddings using loaded PCA model...")
     reduced_embeddings = incremental_pca.transform(
         data=embeddings,
         keep_timestamp=True,
     )
 
-    # set the quantization to Float32 to save memory
     reduced_embeddings = reduced_embeddings.cast({pl.Float64: pl.Float32})
 
-    # Log explained variance
     total_variance = incremental_pca.get_total_explained_variance()
     logger.info(f"Total explained variance: {total_variance:.4f}")
 
-    # Save to cache using sink_parquet (no need to collect)
     logger.info(f"Saving PCA-reduced embeddings to cache: {cache_path}")
     reduced_embeddings.sink_parquet(cache_path)
 
-    # Load the cached file as LazyFrame
     reduced_embeddings = pl.scan_parquet(cache_path)
     logger.info("Cache saved and reloaded successfully")
 
@@ -177,7 +164,6 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     """
     Internal handler for embeddings data source.
     """
-    # Extract config parameters
     data_config = config.get("data", {})
     paths_config = config.get("paths", {})
 
@@ -191,14 +177,10 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     embedding_code = data_config.get("embedding_code")
     max_samples = data_config.get("max_total_samples", 100_000_000)
 
-    # Paths
-    base_embedding_path = paths_config.get(
-        "embeddings_dir", "/scratch/PI/palomar/joel_sole/embedding_data"
-    )
+    base_embedding_path = paths_config.get("embeddings_dir", _DEFAULT_EMBEDDING_DIR)
     exchange = data_config.get("exchange", "binance_futures")
     symbol = data_config["symbol"]
 
-    # 1. Load Embeddings
     logger.info(f"Loading embeddings: {embedding_code}...")
     embedding_paths = get_embeddings_paths(
         str_code=embedding_code,
@@ -216,7 +198,6 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
 
     embeddings = pl.scan_parquet(embedding_paths).limit(max_samples)
 
-    # 2. PCA Reduction
     n_components = data_config.get("pca_components")
     original_embedding_size = -1
 
@@ -238,12 +219,9 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
             base_path=base_embedding_path,
         )
     else:
-        # If no PCA, get original size
         schema = embeddings.collect_schema()
-        # count all cols that are not timestamp
         original_embedding_size = len([c for c in schema.names() if c != "timestamp"])
 
-    # 3. Load Labels (Orderbook)
     logger.info("Loading orderbook data for labels...")
     ob_paths = get_orderbook_paths(
         start_date=first_date, end_date=end_date, exchange=exchange, symbol=symbol
@@ -260,7 +238,6 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
 
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
 
-    # Label extraction
     label_config = config.get("labels", {})
     horizon = label_config.get("horizon", 200)
     threshold = label_config.get("threshold", 2e-4)
@@ -274,14 +251,10 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     logger.info("Extracting labels...")
     labels = directional_return_label.extract(input_space).collect()
 
-    # 4. Merge
     logger.info("Joining embeddings with labels...")
     label_col = directional_return_label.label_names[0]
-
-    # Inner join
     data = embeddings.join(labels.lazy(), on="timestamp", how="inner")
 
-    # Calculate class weights
     y = labels[label_col].to_numpy()
     unique_classes = np.unique(y)
     expected_classes = np.array([-1, 0, 1])
@@ -295,14 +268,12 @@ def _prepare_embeddings_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, 
     class_weights = weights.tolist()
     logger.info(f"Computed balanced class weights: {class_weights}")
 
-    # Prepare output LazyFrames
     schema = data.collect_schema()
     embedding_cols = [col for col in schema.names() if col not in ["timestamp", label_col]]
 
     features_df = data.select(["timestamp"] + embedding_cols)
     labels_df = data.select(["timestamp", label_col])
 
-    # Metadata
     metadata = {
         "class_weights": class_weights,
         "input_size": (n_components if n_components else original_embedding_size),
@@ -332,7 +303,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     exchange = data_config.get("exchange", "binance_futures")
     symbol = data_config["symbol"]
 
-    # 1. Load Orderbook
     logger.info("Loading orderbook data for features and labels...")
     ob_paths = get_orderbook_paths(
         start_date=first_date, end_date=end_date, exchange=exchange, symbol=symbol
@@ -341,7 +311,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     if not ob_paths:
         raise FileNotFoundError(f"No orderbook files found for {exchange}/{symbol}")
 
-    # Standard loading for DeepLOB-like models
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(data_config.get("levels", 10))
@@ -350,7 +319,6 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
 
     input_space = InputSpace(orderbook_snapshots=orderbook_data)
 
-    # 2. Extract Features
     logger.info("Extracting features from pipeline...")
     pipeline = FeaturePipeline()
     feature_configs = data_config.get("features", [])
@@ -371,12 +339,9 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
 
     features = pipeline.extract_all(input_space)
 
-    # Calculate input size
     schema = features.collect_schema()
-    # Subtract timestamp
     input_size = len([c for c in schema.names() if c != "timestamp"])
 
-    # 3. Extract Labels
     label_config = config.get("labels", {})
     horizon = label_config.get("horizon", 200)
     threshold = label_config.get("threshold", 2e-4)
@@ -390,11 +355,7 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     logger.info("Extracting labels...")
     labels = directional_return_label.extract(input_space)
 
-    # We collect labels to compute weights (DeepLOB example does this)
-    # Note: features are kept lazy
     labels_collected = labels.collect()
-
-    # 4. Calculate Class Weights
     label_col = directional_return_label.label_names[0]
     y = labels_collected[label_col].to_numpy()
     unique_classes = np.unique(y)
@@ -407,27 +368,14 @@ def _prepare_orderbook_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, d
     class_weights = weights.tolist()
     logger.info(f"Computed balanced class weights: {class_weights}")
 
-    # Metadata
     metadata = {
         "class_weights": class_weights,
         "input_size": input_size,
         "label_col": label_col,
     }
 
-    # Return lazy frames. Labels can be lazy too by re-scanning or use the in-memory one converted to lazy
-    # To keep consistent with lazy workflow:
-    labels_lazy = labels_collected.lazy()
-
-    # IMPORTANT: Joins usually happen in training loop or data loader.
-    # The current `prepare_data` returns SEPARATE dataframes for features and labels for embeddings path
-    # But wait, `_prepare_embeddings_data` returns `features_df` and `labels_df` which were just selected from the JOINED `data`.
-    # They are effectively aligned by timestamp because of the join.
-    # Here, `features` and `labels` come from SAME `input_space` with SAME `sample_by_time`.
-    # So they should be perfectly aligned.
-    # We can join them to be safe or ensure timestamp match.
-    # Let's join them to enforce alignment as in embeddings path.
-
-    data = features.join(labels_lazy, on="timestamp", how="inner")
+    # Inner join enforces timestamp alignment between features and labels
+    data = features.join(labels_collected.lazy(), on="timestamp", how="inner")
 
     features_df = data.select(["timestamp"] + [c for c in schema.names() if c != "timestamp"])
     labels_df = data.select(["timestamp", label_col])
@@ -440,7 +388,6 @@ def prepare_data(config: dict) -> Tuple[pl.LazyFrame, pl.LazyFrame, dict]:
     Prepare features and labels based on configuration.
     Returns (features_df, labels_df, metadata)
     """
-    # Extract config parameters
     data_config = config.get("data", {})
 
     data_source = data_config.get("source", "embeddings")

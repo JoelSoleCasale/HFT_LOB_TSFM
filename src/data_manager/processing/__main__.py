@@ -9,7 +9,7 @@ from data_manager.processing.incremental_orderbook_sampler import IncrementalOrd
 from utils import setup_logging
 
 
-def load_config():
+def load_config() -> dict:
     """Loads configuration from YAML files."""
     config_path = ROOT_DIR / "config" / "config.yaml"
     processing_config_path = ROOT_DIR / "config" / "data_manager" / "processing" / "default.yaml"
@@ -21,7 +21,7 @@ def load_config():
     return config
 
 
-def parse_args(default_cfg):
+def parse_args(default_cfg) -> argparse.Namespace:
     """
     Parse command-line arguments, using defaults from the configuration.
     """
@@ -30,7 +30,6 @@ def parse_args(default_cfg):
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # Set parser defaults from the loaded configuration
     processing_cfg = default_cfg["data_manager_processing"]
     parser.set_defaults(
         log_level=default_cfg["log_level"],
@@ -77,7 +76,6 @@ def main() -> None:
 
     sampler = IncrementalOrderBookSampler(cache_root=args.cache_root)
 
-    # Handle dates
     start_date = date.fromisoformat(args.start_date)
     end_date = date.today() if args.end_date is None else date.fromisoformat(args.end_date)
 

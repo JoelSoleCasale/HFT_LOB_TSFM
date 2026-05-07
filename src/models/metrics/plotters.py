@@ -218,7 +218,6 @@ class ROCCurvePlotter(MetricPlotter):
         return True
 
     def plot(self, predictions: torch.Tensor, targets: torch.Tensor, **kwargs) -> plt.Figure:
-        # Get probabilities
         probs = torch.softmax(predictions, dim=1).cpu().numpy()
         targets_np = targets.cpu().numpy()
 
@@ -262,7 +261,6 @@ class PredictionDistributionPlotter(MetricPlotter):
         return True
 
     def plot(self, predictions: torch.Tensor, targets: torch.Tensor, **kwargs) -> plt.Figure:
-        # Get probabilities
         probs = torch.softmax(predictions, dim=1).cpu().numpy()
         targets_np = targets.cpu().numpy()
         n_classes = probs.shape[1]

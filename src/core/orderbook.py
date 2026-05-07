@@ -181,48 +181,14 @@ class OrderBook(Generic[DFType]):
 
     @classmethod
     def from_parquet(cls, source: FileSource, lazy: bool = False) -> "OrderBook":
-        """
-        Create an OrderBook instance from a Parquet file.
-
-        Args:
-            source (FileSource): Path or file-like object pointing to the Parquet file
-                                containing orderbook data.
-            lazy (bool): If True, read as LazyFrame. If False, read as DataFrame.
-
-        Returns:
-            OrderBook: A new OrderBook instance populated with data from the Parquet file.
-
-        Raises:
-            FileNotFoundError: If the specified Parquet file cannot be found.
-            PolarsError: If the Parquet file cannot be read or has invalid format.
-
-        Example:
-            >>> orderbook = OrderBook.from_parquet("data/orderbook.parquet")
-            >>> print(len(orderbook))
-            1000
-        """
+        """Create an OrderBook from a Parquet file. Pass ``lazy=True`` to read as LazyFrame."""
         if lazy:
             return cls(data=pl.scan_parquet(source))
         else:
             return cls(data=pl.read_parquet(source))
 
     def to_parquet(self, file: FileSource) -> None:
-        """
-        Save the OrderBook data to a Parquet file.
-
-        Args:
-            file (FileSource): Path or file-like object where the Parquet file will be saved.
-
-        Returns:
-            None
-
-        Raises:
-            PolarsError: If there is an error writing the DataFrame to Parquet format.
-
-        Example:
-            >>> orderbook = OrderBook(levels=5)
-            >>> orderbook.to_parquet("data/orderbook.parquet")
-        """
+        """Save the OrderBook data to a Parquet file."""
         if self._data.is_lazy:
             self._data.df.collect().write_parquet(file)
         else:
@@ -266,8 +232,6 @@ class OrderBook(Generic[DFType]):
         df = self.df.select(OrderBookData.get_orderbook_columns(levels))
         return OrderBook(df)
 
-    # ================== Order Book sampling methods ==================
-
     def sample_by_events(self, n: int) -> "OrderBook":
         """
         Take every nth row from the orderbook DataFrame.
@@ -282,7 +246,7 @@ class OrderBook(Generic[DFType]):
         """
         Sample the orderbook DataFrame at regular time intervals.
         Args:
-            time_delta (int): Time interval in for sampling.
+            time_delta (int): Time interval (in timestamp units) for sampling.
             interpolate (bool): Whether to interpolate missing timestamps. If True,
                                 the timestamps in the resulting DataFrame will be
                                 evenly spaced by time_delta, with missing values
@@ -308,8 +272,6 @@ class OrderBook(Generic[DFType]):
             res_lf = full_range.join_asof(res_lf, on="timestamp").fill_null(strategy="forward")
 
         return OrderBook(OrderBookData(res_lf, allow_duplicates=True))
-
-    # ================== Order Book feature extraction ==================
 
     def get_mid_prices(self) -> DFType:
         """

@@ -88,7 +88,7 @@ class ModelTrainer:
             weight_decay=training_config.weight_decay,
         )
 
-    def _create_scheduler(self) -> optim.lr_scheduler._LRScheduler | None:
+    def _create_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         """Create learning rate scheduler based on configuration."""
         training_config = self.config.get_training_config()
 
@@ -158,36 +158,29 @@ class ModelTrainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                # Standard forward pass
                 outputs = self.model(sequences)
                 loss = self.criterion(outputs, labels)
 
-                # Backward pass
                 loss.backward()
 
-                # Gradient clipping
                 if training_config.gradient_clip_norm is not None:
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), training_config.gradient_clip_norm
                     )
 
-                # Optimizer step
                 self.optimizer.step()
 
-            # Store loss and predictions
             total_loss += loss.item()
             num_batches += 1
             all_predictions.append(outputs.detach().cpu())
             all_targets.append(labels.cpu())
 
-            # Update progress bar (only if tqdm is enabled)
             if training_config.use_tqdm:
                 progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         avg_loss = total_loss / num_batches
         epoch_time = time.time() - epoch_start_time
 
-        # Concatenate all predictions and targets
         all_predictions = torch.cat(all_predictions, dim=0)
         all_targets = torch.cat(all_targets, dim=0)
 
@@ -211,15 +204,11 @@ class ModelTrainer:
                 sequences = sequences.to(self.device)
                 labels = labels.to(self.device)
 
-                # Forward pass
                 outputs = self.model(sequences)
                 loss = self.criterion(outputs, labels)
 
-                # Store loss and predictions
                 total_loss += loss.item()
                 num_batches += 1
-
-                # Store predictions and labels
                 all_predictions.append(outputs.cpu())
                 all_labels.append(labels.cpu())
 
@@ -299,8 +288,6 @@ class ModelTrainer:
         for callback in self.callbacks:
             y_pred, y_true = self.predict(test_loader)
             callback.on_train_end(self, (y_pred, y_true))
-
-        return None
 
     def _save_final_model(self, feature_names: list[str] | None, label_names: list[str] | None):
         """Save the final trained model."""

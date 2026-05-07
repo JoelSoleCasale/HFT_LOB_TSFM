@@ -4,7 +4,7 @@ from utils import setup_logging
 import argparse
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Run model training from configuration files")
     parser.add_argument(
         "--global-config",

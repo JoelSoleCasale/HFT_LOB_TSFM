@@ -60,27 +60,8 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         self,
         config: dict[str, Any] | None = None,
     ):
-        """
-        Initialize Chronos embedding generator.
-
-        Args:
-            config: Configuration dictionary with the following keys:
-                - model_type: Type of Chronos model ("t5", "bolt", "chronos2", "autogluon-chronos2", default: "t5")
-                - model_size: Size of the model ("mini", "small", "base", "large", default: "mini")
-                  Note: For chronos2, only base size is available (model_size is ignored)
-                - seq_aggregation: How to aggregate across sequence dimension ("last", "mean", "max", "min", or "concat", default: "last")
-                - feat_aggregation: How to aggregate across feature dimension ("last", "mean", "max", "min", or "concat", default: "concat")
-                - augment_with_statistics: Whether to augment with patch statistics (default: False)
-                - k: Number of patches for statistics (default: 8)
-                - use_differencing: Whether to augment with differenced embeddings (default: False)
-                - device: Device to use ("cuda" or "cpu", default: "cuda")
-                - batch_size: Number of samples to process in parallel (default: 32)
-                - stride: Generate embeddings only for timestamps where timestamp % stride == 0 (default: 1, i.e., all samples)
-                - disable_tqdm: Whether to disable progress bars (default: False)
-        """
         super().__init__(config)
 
-        # Set defaults
         self.model_type: str = self.config.get("model_type", "t5")
         self.model_size: str = self.config.get("model_size", "mini")
         self.seq_aggregation: str = self.config.get("seq_aggregation", "last")
@@ -139,7 +120,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 pipeline_class = model_config["pipeline_class"]
                 model_name_template = model_config["model_name_template"]
 
-                # Format model name (chronos2 ignores size parameter)
+                # chronos2 model name has no size parameter
                 if self.model_type == "chronos2":
                     model_name = model_name_template
                     logger.info(f"Loading Chronos 2 on {self.device}")
@@ -149,7 +130,7 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                         f"Loading Chronos {self.model_type}-{self.model_size} on {self.device}"
                     )
 
-                # Load pipeline with appropriate dtype
+                # Chronos 2 variants don't accept a dtype argument
                 if self.model_type in ["chronos2", "autogluon-chronos2"]:
                     _PIPELINE_CACHE[cache_key] = pipeline_class.from_pretrained(
                         model_name,
@@ -168,10 +149,10 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         """
         Wrapper to call pipeline.embed() with consistent output format.
 
-        For Chronos 1 (T5/Bolt): Flattens batch dimension to treat each feature independently,
-        then reshapes output to match Chronos 2 format.
-
-        For Chronos 2: Passes input directly.
+        For Chronos 1 (T5/Bolt): each feature is treated as an independent batch element.
+        The input is flattened to (batch_size * n_features, seq_len), embedded, then
+        reshaped back to (batch_size, n_features, new_seq_len, embedding_size) to match
+        the Chronos 2 output layout.
 
         Args:
             context: Input tensor of shape (batch_size, n_features, seq_len)
@@ -180,8 +161,6 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
             Embeddings tensor of shape (batch_size, n_features, new_seq_len, embedding_size)
         """
         if self.model_type in ["chronos2", "autogluon-chronos2"]:
-            # Chronos 2: Input shape (batch_size, n_features, seq_len)
-            # Output is a list of tensors, convert to single tensor
             embeddings_list, _ = self.pipeline.embed(context)
             embeddings = (
                 torch.stack(embeddings_list)
@@ -190,23 +169,11 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
             )
             return embeddings
         else:
-            # Chronos 1 (T5/Bolt): Each feature is treated as an independent batch element
             batch_size, n_features, seq_len = context.shape
-
-            # Flatten to (batch_size * n_features, seq_len)
             context_flat = context.reshape(batch_size * n_features, seq_len)
-
-            # Get embeddings: (batch_size * n_features, new_seq_len, embedding_size)
             embeddings_flat, _ = self.pipeline.embed(context_flat)
-
-            # Reshape to match Chronos 2 format
             _, new_seq_len, embedding_size = embeddings_flat.shape
-            embeddings = embeddings_flat.reshape(
-                batch_size, n_features, new_seq_len, embedding_size
-            )
-
-            # Output shape: (batch_size, n_features, new_seq_len, embedding_size)
-            return embeddings
+            return embeddings_flat.reshape(batch_size, n_features, new_seq_len, embedding_size)
 
     def _process_embedding_batch(self, data_batch: np.ndarray) -> torch.Tensor:
         """
@@ -218,20 +185,12 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         Returns:
             Processed embedding tensor of shape (batch_size, embedding_dim)
         """
-        # Convert to tensor with shape (batch_size, n_features, seq_len)
-        context = torch.tensor(
-            np.transpose(data_batch, (0, 2, 1)), dtype=torch.float32
-        )  # (batch_size, n_features, seq_len)
+        context = torch.tensor(np.transpose(data_batch, (0, 2, 1)), dtype=torch.float32)
 
-        # Get embeddings: (batch_size, n_features, new_seq_len, embedding_size)
         embeddings = self._embed_with_chronos(context)
 
-        # Aggregate across sequence dimension (dim=2)
-        # Shape: (batch_size, n_features, new_seq_len, embedding_size) -> (batch_size, n_features, embedding_size)
+        # Aggregate sequence dimension first, then feature dimension
         emb = self.seq_aggregator.aggregate(embeddings, dim=2)
-
-        # Aggregate across feature dimension (dim=1)
-        # Shape: (batch_size, n_features, embedding_size) -> (batch_size, embedding_dim)
         emb = self.feat_aggregator.aggregate(emb, dim=1)
 
         return emb.float()
@@ -246,9 +205,9 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         Returns:
             Processed embedding tensor of shape (embedding_dim,)
         """
-        data_batch = np.expand_dims(data, axis=0)  # (1, seq_len, n_features)
-        emb_batch = self._process_embedding_batch(data_batch)  # (1, embedding_dim)
-        return emb_batch.squeeze(0)  # (embedding_dim,)
+        data_batch = np.expand_dims(data, axis=0)
+        emb_batch = self._process_embedding_batch(data_batch)
+        return emb_batch.squeeze(0)
 
     def _generate_embedding_column_names(
         self, feature_cols: list[str], base_emb_size: int
@@ -266,19 +225,15 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         n_features = len(feature_cols)
         column_names = []
 
-        # Determine embedding size per feature based on aggregation strategy
         if self.feat_aggregation == "concat":
-            # Each feature contributes equally to the base embedding
             emb_per_feature = base_emb_size // n_features
             for feat_name in feature_cols:
                 for i in range(emb_per_feature):
                     column_names.append(f"emb_{feat_name}_{i}")
         else:
-            # Features are aggregated, so we can't attribute to specific features
             for i in range(base_emb_size):
                 column_names.append(f"emb_agg_{i}")
 
-        # Add differenced embedding columns if enabled
         if self.use_differencing:
             if self.feat_aggregation == "concat":
                 emb_per_feature = base_emb_size // n_features
@@ -289,7 +244,6 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 for i in range(base_emb_size):
                     column_names.append(f"emb_diff_agg_{i}")
 
-        # Add patch statistics columns if enabled
         if self.augment_with_statistics:
             # Statistics are ordered as: [means, stds, mins, maxs] for k patches
             stat_names = ["mean", "std", "min", "max"]
@@ -316,25 +270,20 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         if len(features) == 0:
             raise ValueError("Features array cannot be empty")
 
-        # Truncate to context length if specified
         if context_length is not None:
             features = features[-context_length:]
 
-        # Generate embedding from original time series
         embedding = self._process_embedding_single(features).cpu().numpy()
 
-        # Augment with differenced embedding if enabled
         if self.use_differencing and len(features) > 1:
             differenced_data = compute_differenced_sequence(features, order=1)
             differenced_embedding = self._process_embedding_single(differenced_data).cpu().numpy()
             embedding = np.concatenate([embedding, differenced_embedding])
 
-        # Augment with patch statistics if enabled
         if self.augment_with_statistics and len(features) >= self.k:
             patch_stats = compute_patch_statistics(features, self.k, normalize=True)
             embedding = np.concatenate([embedding, patch_stats])
 
-        # Set embedding dimension if not set
         if self.embedding_dim is None:
             self.embedding_dim = len(embedding)
 
@@ -361,18 +310,15 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         if "timestamp" not in features_collected.columns:
             raise ValueError("Features dataframe must have a 'timestamp' column")
 
-        # Extract feature columns (exclude timestamp)
         feature_cols = extract_feature_columns(features_collected.lazy())
 
         if len(feature_cols) == 0:
             raise ValueError("No feature columns found in dataframe")
 
-        # Convert to numpy for processing
         timestamps = features_collected["timestamp"].to_numpy()
         feature_data = features_collected.select(feature_cols).to_numpy()
 
-        # Calculate start index: we need at least context_length samples
-        start_index = context_length - 1  # 0-based index
+        start_index = context_length - 1
 
         if start_index >= len(feature_data):
             raise ValueError(
@@ -380,18 +326,15 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                 f"but only have {len(feature_data)}"
             )
 
-        # Prepare context windows for samples matching stride criterion
         all_contexts = []
         valid_indices = []
 
         for i in range(start_index, len(feature_data)):
-            # Only generate embeddings for timestamps where timestamp % stride == 0
             if i % self.stride == 0:
                 context_data = feature_data[i - context_length + 1 : i + 1]
                 all_contexts.append(context_data)
                 valid_indices.append(i)
 
-        # Process in batches for efficiency
         embeddings_list = []
 
         for batch_start in tqdm(
@@ -405,14 +348,12 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
             batch_end = min(batch_start + self.batch_size, len(all_contexts))
             batch_contexts = all_contexts[batch_start:batch_end]
 
-            # Stack contexts into a batch: (batch_size, seq_len, n_features)
             batch_array = np.stack(batch_contexts, axis=0)
 
             try:
                 batch_embeddings = self._process_embedding_batch(batch_array).cpu().numpy()
 
                 if self.use_differencing and context_length > 1:
-                    # Compute differenced sequences for the batch
                     differenced_batch = np.array(
                         [compute_differenced_sequence(ctx, order=1) for ctx in batch_contexts]
                     )
@@ -422,7 +363,6 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
                     batch_embeddings = np.concatenate([batch_embeddings, diff_embeddings], axis=1)
 
                 if self.augment_with_statistics and context_length >= self.k:
-                    # Compute patch statistics for each sample in the batch
                     stats_batch = np.array(
                         [
                             compute_patch_statistics(ctx, self.k, normalize=True)
@@ -451,13 +391,9 @@ class ChronosEmbeddingGenerator(BaseEmbeddingGenerator):
         if self.embedding_dim is None:
             self.embedding_dim = len(embeddings_list[0])
 
-        # Calculate base embedding size (before augmentation)
         base_emb_size = self._process_embedding_batch(all_contexts[0:1]).shape[1]
-
-        # Create meaningful embedding column names
         embedding_cols = self._generate_embedding_column_names(feature_cols, base_emb_size)
 
-        # Create result dataframe
         embeddings_array = np.array(embeddings_list)
         result_dict = {
             "timestamp": timestamps[valid_indices],

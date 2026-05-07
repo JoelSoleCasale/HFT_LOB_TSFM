@@ -93,13 +93,8 @@ class FinancialDataset(Dataset):
             f"Converted to numpy - features: {features_df.shape}, labels: {labels_df.shape}"
         )
 
-        # Handle missing values by dropping rows with any nulls/NaNs across features and labels together
-        logger.debug("Handling missing values...")
-        # self.features, self.labels = self._handle_missing_values(features_df, labels_df)
-        self.features, self.labels = (
-            features_df,
-            labels_df,
-        )  # Assume no missing values for simplicity TODO: change this
+        # TODO: add missing value handling
+        self.features, self.labels = features_df, labels_df
 
         # Map classification labels to contiguous class indices if single-column labels are provided
         # Expecting directional labels in {-1, 0, 1} → map to {0, 1, 2}
@@ -167,37 +162,6 @@ class FinancialDataset(Dataset):
         logger.info(f"Device: {self.device}")
         logger.info(f"Feature columns: {self.feature_columns}")
         logger.info(f"Label columns: {self.label_columns}")
-
-    def _handle_missing_values(
-        self, features: np.ndarray, labels: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Handle missing values by dropping rows with any nulls/NaNs across features and labels together.
-
-        Args:
-            features: NumPy array of feature data
-            labels: NumPy array of label data
-
-        Returns:
-            Tuple of (filtered_features, filtered_labels) with missing value rows removed
-        """
-        # Create boolean mask for rows with missing values in features
-        features_has_nan = np.isnan(features).any(axis=1)
-        labels_has_nan = np.isnan(labels).any(axis=1)
-
-        # Invert to get mask of valid rows (no missing values)
-        valid_rows_mask = ~(features_has_nan | labels_has_nan)
-
-        before_rows = len(features)
-        after_rows = valid_rows_mask.sum()
-
-        if after_rows < before_rows:
-            logger.info(
-                f"Dropped {before_rows - after_rows} rows with missing values "
-                f"(from {before_rows} to {after_rows})."
-            )
-
-        return features[valid_rows_mask], labels[valid_rows_mask]
 
     def _get_valid_sequence_indices(self) -> list[int]:
         """Get indices where we can create valid sequences."""
@@ -276,7 +240,7 @@ def create_dataloaders(
         data_config: Data configuration
         feature_columns: List of feature column names to use
         label_columns: List of label column names to use
-        random_seed: Random seed for reproducibility (unused, kept for compatibility)
+        random_seed: Random seed for reproducibility (unused; splits are temporal)
 
     Returns:
         Tuple of (train_loader, val_loader, test_loader, scaler)
