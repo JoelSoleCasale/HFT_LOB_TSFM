@@ -8,7 +8,6 @@ This script demonstrates how to:
 4. Evaluate the trained model
 """
 
-from pathlib import Path
 import warnings
 from datetime import date, timedelta
 
@@ -26,28 +25,19 @@ from models import (
     LoggingConfig,
     train_model,
 )
-from utils import date_range
-from definitions import ROOT_DIR
+from utils import date_range, get_ob_path
 from core.orderbook import OrderBook
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
 
-def main():
+def main() -> None:
     """Main function demonstrating model training."""
 
-    # Configuration
     FIRST_DATE = date(2025, 7, 1)
     N_DAYS = 10
 
     print("Loading orderbook data...")
-
-    # Load orderbook data (same as in testing.ipynb)
-    def get_ob_path(date: date) -> Path:
-        return (
-            ROOT_DIR
-            / f'data/orderbook_snapshots/binance_futures/BTCUSDT/{date.strftime("%Y-%m-%d")}_L20.parquet'
-        )
 
     ob_paths = [
         get_ob_path(d) for d in date_range(FIRST_DATE, FIRST_DATE + timedelta(days=N_DAYS - 1))
@@ -60,28 +50,23 @@ def main():
 
     print("Creating input space and feature pipeline...")
 
-    # Create input space
     input_space = InputSpace(
         orderbook_snapshots=orderbook_data,
     )
 
-    # Build feature pipeline
     feature_pipeline = FeaturePipeline()
     feature_pipeline.add_extractor(FeatureExtractorRegistry.create("advanced_orderbook"))
 
-    # Build label pipeline
     directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 3e-4})
 
     print("Extracting features and labels...")
 
-    # Extract features and labels
     features = feature_pipeline.extract_all(input_space)
     labels = directional_return_label.extract(input_space)
 
     print(f"Features shape: {features.collect().shape}")
     print(f"Labels shape: {labels.collect().shape}")
 
-    # Print label percentage class distributions
     labels_df = labels.collect()
     label_counts = labels_df[directional_return_label.label_names[0]].value_counts()
     total_samples = len(labels_df)
@@ -91,8 +76,6 @@ def main():
         percentage = (count / total_samples) * 100
         print(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
 
-    # Create model configuration with new structure
-    # Example 1: LSTM Configuration
     lstm_config = LSTMConfig(
         input_size=len(features.columns) - 1,  # exclude timestamp
         hidden_size=64,
@@ -103,25 +86,6 @@ def main():
         attention=False,
     )
 
-    # Example 2: Transformer Configuration (uncomment to use)
-    # transformer_config = TransformerConfig(
-    #     input_size=4,
-    #     d_model=64,
-    #     nhead=8,
-    #     num_layers=2,
-    #     output_size=3,
-    #     dropout=0.2,
-    #     dim_feedforward=256,
-    # )
-
-    # Example 3: MLP Configuration (uncomment to use)
-    # mlp_config = MLPConfig(
-    #     input_size=4,
-    #     output_size=3,
-    #     hidden_sizes=[64, 32],
-    #     dropout=0.2,
-    # )
-
     class_weights = [0.0, 0.0, 0.0]
 
     for label_value, count in label_counts.iter_rows():
@@ -129,7 +93,7 @@ def main():
         class_weights[label_value + 1] = 1 / freq
 
     config = ModelConfig(
-        architecture=lstm_config,  # Use lstm_config, transformer_config, or mlp_config
+        architecture=lstm_config,
         data=DataConfig(
             sequence_length=256,
             batch_size=1024,
@@ -163,7 +127,6 @@ def main():
     print("Starting model training...")
     print(f"Model configuration: {config}")
 
-    # Train the model
     trainer, results = train_model(
         features=features,
         labels=labels,
