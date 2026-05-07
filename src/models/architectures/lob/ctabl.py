@@ -14,7 +14,7 @@ Architecture:
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Tuple
 import math
 
 import torch
@@ -41,10 +41,8 @@ class BilinearLayer(nn.Module):
         self.d1 = d1
         self.d2 = d2
 
-        # Projection weights
         self.W1 = nn.Parameter(torch.empty(D1, d1))
         self.W2 = nn.Parameter(torch.empty(D2, d2))
-        # Bias
         self.bias = nn.Parameter(torch.zeros(d1, d2))
 
         self.reset_parameters()
@@ -53,20 +51,15 @@ class BilinearLayer(nn.Module):
         # He/Kaiming uniform initialization similar to Keras he_uniform
         nn.init.kaiming_uniform_(self.W1, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W2, a=math.sqrt(5))
-        # Bias already zero
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, D1, D2)
         if x.dim() != 3 or x.shape[1] != self.D1 or x.shape[2] != self.D2:
             raise ValueError(
                 f"Expected input of shape (batch, {self.D1}, {self.D2}), got {tuple(x.shape)}"
             )
 
-        # First mode projection: (batch, D1, D2) x (D1, d1) -> (batch, d1, D2)
         x = torch.einsum("bjd,jk->bkd", x, self.W1)
-        # Second mode projection: (batch, d1, D2) x (D2, d2) -> (batch, d1, d2)
         x = torch.einsum("bkd,dl->bkl", x, self.W2)
-        # Bias add
         x = x + self.bias
         return x
 
@@ -93,16 +86,13 @@ class TABLLayer(nn.Module):
         self.d1 = d1
         self.d2 = d2
 
-        # Projection weights with scaled initialization for large D2
         self.W1 = nn.Parameter(torch.empty(D1, d1))
         self.W2 = nn.Parameter(torch.empty(D2, d2))
-        # Temporal attention matrix W (D2 x D2), initialized with He scaling
+        # Temporal attention matrix (D2 x D2)
         self.W_attn = nn.Parameter(torch.empty(D2, D2))
-        # Scalar mixing parameter alpha in logit space (will be sigmoid'd to [0,1])
-        # Initialize to give alpha_init after sigmoid
+        # Alpha in logit space so sigmoid keeps it in [0,1]; init to give alpha_init after sigmoid
         alpha_logit = math.log(alpha_init / (1 - alpha_init)) if 0 < alpha_init < 1 else 0.0
         self.alpha_logit = nn.Parameter(torch.tensor(alpha_logit))
-        # Bias
         self.bias = nn.Parameter(torch.zeros(1, d1, d2))
 
         self.reset_parameters()
@@ -118,33 +108,26 @@ class TABLLayer(nn.Module):
             self.W_attn.diagonal().fill_(1.0 / self.D2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, D1, D2)
         if x.dim() != 3 or x.shape[1] != self.D1 or x.shape[2] != self.D2:
             raise ValueError(
                 f"Expected input of shape (batch, {self.D1}, {self.D2}), got {tuple(x.shape)}"
             )
 
-        # First mode projection -> (batch, d1, D2)
         x = torch.einsum("bjd,jk->bkd", x, self.W1)
 
         # Enforce constant diagonal of attention matrix to 1/D2 for stability
         Id = torch.eye(self.D2, device=x.device, dtype=x.dtype)
         W = self.W_attn - self.W_attn * Id + Id * (1.0 / self.D2)
 
-        # Compute attention scores along temporal dimension and apply softmax
-        attn_scores = torch.einsum("bkd,dl->bkl", x, W)  # (batch, d1, D2)
+        attn_scores = torch.einsum("bkd,dl->bkl", x, W)
         attention = F.softmax(attn_scores, dim=-1)
 
-        # Convert alpha_logit to alpha in [0, 1] using sigmoid
         alpha = torch.sigmoid(self.alpha_logit)
-
-        # Mix attended features with alpha-weighted combination
-        # alpha closer to 1 means more original x, closer to 0 means more attended x
+        # alpha=1 keeps original x; alpha=0 uses attended x entirely
         x = alpha * x + (1.0 - alpha) * (x * attention)
 
-        # Second mode projection -> (batch, d1, d2)
         x = torch.einsum("bkd,dl->bkl", x, self.W2)
-        x = x + self.bias  # broadcast over batch
+        x = x + self.bias
         return x
 
 
@@ -161,8 +144,8 @@ class CTABLConfig(ModelArchitectureConfig):
     model_type: str = "ctabl"
     # Temporal length (second mode of input)
     time_steps: int = 10
-    # Hidden bilinear layers (list of (d1, d2))
-    hidden_dims: List[Tuple[int, int]] = ((120, 5),)
+    # Hidden bilinear layers (sequence of (d1, d2))
+    hidden_dims: tuple[tuple[int, int], ...] = ((120, 5),)
     # Output bilinear dims (d1, d2); d2 should be 1 for classification logits
     output_dims: Tuple[int, int] = (3, 1)
     # Activation between bilinear layers
@@ -181,7 +164,7 @@ class CTABLModel(FinancialTimeSeriesModel):
         input_size: int,
         output_size: int = 3,
         time_steps: int = 10,
-        hidden_dims: List[Tuple[int, int]] = ((120, 5),),
+        hidden_dims: tuple[tuple[int, int], ...] = ((120, 5),),
         output_dims: Tuple[int, int] = (3, 1),
         dropout: float = 0.1,
         activation: str = "relu",
@@ -198,18 +181,14 @@ class CTABLModel(FinancialTimeSeriesModel):
         self.dropout_p = dropout
         self.activation = activation
 
-        # Build hidden bilinear layers
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         in_dims = (self.D1, self.D2)
         for hd in hidden_dims:
             layers.append(BilinearLayer(in_dims, hd))
-            in_dims = hd  # next layer input dims
+            in_dims = hd
         self.hidden_layers = nn.ModuleList(layers)
 
-        # Final TABL layer from last hidden dims to output dims
         self.tabl = TABLLayer(in_dims, output_dims)
-
-        # Dropout module
         self.dropout = nn.Dropout(self.dropout_p)
 
     def _activate(self, x: torch.Tensor) -> torch.Tensor:
@@ -231,25 +210,20 @@ class CTABLModel(FinancialTimeSeriesModel):
                 f"CTABL expects a 3D tensor (batch, time, features) or (batch, features, time), got {x.shape}"
             )
 
-        # Ensure shape is (batch, features, time)
         if x.shape[1] == self.D2 and x.shape[2] == self.D1:
-            # Input is (batch, time, features) -> transpose
             x = x.transpose(1, 2)
         elif not (x.shape[1] == self.D1 and x.shape[2] == self.D2):
             raise ValueError(
                 f"Input shape must be (batch, {self.D2}, {self.D1}) or (batch, {self.D1}, {self.D2}), got {tuple(x.shape)}"
             )
 
-        # Hidden bilinear blocks
         for layer in self.hidden_layers:
             x = layer(x)
             x = self._activate(x)
             x = self.dropout(x)
 
-        # Final TABL
         x = self.tabl(x)
 
-        # If output second mode is 1, squeeze to (batch, output_size)
         if x.shape[-1] == 1:
             x = x.squeeze(-1)
 

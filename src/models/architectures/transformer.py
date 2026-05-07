@@ -51,8 +51,7 @@ class PositionalEncoding(nn.Module):
 
             pe[:, 0::2] = torch.sin(position * div_term)
             pe[:, 1::2] = torch.cos(position * div_term)
-            pe = pe.unsqueeze(0)  # Shape: (1, max_len, d_model)
-
+            pe = pe.unsqueeze(0)
             self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -126,31 +125,8 @@ class TransformerTimeSeriesModel(FinancialTimeSeriesModel):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: Input tensor of shape (batch_size, sequence_length, input_size)
-
-        Returns:
-            Output tensor of shape (batch_size, output_size)
-        """
-        # Project input to model dimension
-        # Shape: (batch_size, sequence_length, input_size) -> (batch_size, sequence_length, d_model)
         x = self.input_projection(x)
-
-        # Add positional encoding
-        # Shape: (batch_size, sequence_length, d_model) -> (batch_size, sequence_length, d_model)
         x = self.pos_encoding(x)
-
-        # Transformer forward pass
-        # Shape: (batch_size, sequence_length, d_model) -> (batch_size, sequence_length, d_model)
         transformer_out = self.transformer(x)
-
-        # Use the last time step for prediction
-        # Shape: (batch_size, sequence_length, d_model) -> (batch_size, d_model)
         output = transformer_out[:, -1, :]
-
-        # Project to output size
-        # Shape: (batch_size, d_model) -> (batch_size, output_size)
         return self.output_projection(output)

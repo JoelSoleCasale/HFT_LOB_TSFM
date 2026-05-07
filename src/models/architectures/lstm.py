@@ -74,30 +74,16 @@ class LSTMTimeSeriesModel(FinancialTimeSeriesModel):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: Input tensor of shape (batch_size, sequence_length, input_size)
-
-        Returns:
-            Output tensor of shape (batch_size, output_size)
-        """
-        # LSTM forward pass
         lstm_out, (hidden, cell) = self.lstm(x)
 
         if self.attention:
-            # Apply attention mechanism
             attn_out, _ = self.attention_layer(lstm_out, lstm_out, lstm_out)
-            # Use the last time step
             output = attn_out[:, -1, :]
         else:
-            # Use the last hidden state
             if self.bidirectional:
                 # Concatenate forward and backward hidden states
                 output = torch.cat([hidden[-2], hidden[-1]], dim=1)
             else:
                 output = hidden[-1]
 
-        # Apply fully connected layers
         return self.fc_layers(output)

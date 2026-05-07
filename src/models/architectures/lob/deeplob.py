@@ -84,10 +84,8 @@ class DeepLOBModel(FinancialTimeSeriesModel):
             conv_filters: Number of filters in convolutional blocks
             inception_filters: Number of filters in inception module
             lstm_hidden_size: Hidden size of LSTM layer
-            dropout: Dropout rate (not used in original architecture)
-            activation: Activation function (not used, fixed to match original)
+            dropout: Dropout rate
             leaky_relu_slope: Negative slope for LeakyReLU
-            use_batch_norm: Whether to use batch normalization (always True in original)
         """
         super().__init__(input_size, output_size)
 
@@ -97,7 +95,6 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         self.dropout = dropout
 
         # First convolutional block: LeakyReLU activation
-        # Input: (batch, 1, T, 40) -> (batch, 32, T, 20)
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=conv_filters, kernel_size=(1, 2), stride=(1, 2)),
             nn.LeakyReLU(negative_slope=leaky_relu_slope),
@@ -111,7 +108,6 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         )
 
         # Second convolutional block: Tanh activation
-        # (batch, 32, T-6, 20) -> (batch, 32, T-6, 10)
         self.conv2 = nn.Sequential(
             nn.Conv2d(
                 in_channels=conv_filters,
@@ -130,7 +126,6 @@ class DeepLOBModel(FinancialTimeSeriesModel):
         )
 
         # Third convolutional block: LeakyReLU activation
-        # (batch, 32, T-12, 10) -> (batch, 32, T-18, 1)
         self.conv3 = nn.Sequential(
             nn.Conv2d(in_channels=conv_filters, out_channels=conv_filters, kernel_size=(1, 10)),
             nn.LeakyReLU(negative_slope=leaky_relu_slope),
@@ -239,7 +234,6 @@ class DeepLOBModel(FinancialTimeSeriesModel):
                 f"got {x.dim()}D tensor with shape {x.shape}"
             )
 
-        # h0: (number of hidden layers, batch size, hidden size)
         h0 = torch.zeros(1, x.size(0), self.lstm_hidden_size).to(x.device)
         c0 = torch.zeros(1, x.size(0), self.lstm_hidden_size).to(x.device)
 

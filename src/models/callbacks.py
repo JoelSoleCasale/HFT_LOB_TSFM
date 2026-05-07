@@ -11,8 +11,12 @@ from typing import Any
 
 from .metrics.logger import WandbLogger
 from .metrics.presets import create_trading_suite
+from .metrics.calculators import ExpectedReturnCalculator, MaxThetaCalculator
+from .metrics.plotters import ExpectedReturnVsThresholdPlotter
 from .config import LoggingConfig
 from .utils import save_model
+from models.metrics import calculate_accuracy, calculate_trade_accuracy
+from models.architectures.mlp import MLPTimeSeriesModel
 
 
 class Callback:
@@ -188,20 +192,14 @@ class WandbMetricsLogger(Callback):
         self.lambda_value = lambda_value
         self.theta_values = theta_values or [0.0]
 
-        # Create WandB logger
         self.wandb_logger = WandbLogger(log_config=log_config, train_config=train_config)
 
-        # Create metrics suite
         self.metrics_suite = create_trading_suite(
             num_classes=num_classes,
             class_names=self.class_names,
             trade_threshold=0.5,
             include_per_class=False,
         )
-
-        # Create expected return calculators for each theta
-        from .metrics.calculators import ExpectedReturnCalculator, MaxThetaCalculator
-        import numpy as np
 
         self.expected_return_calculators = [
             ExpectedReturnCalculator(
@@ -212,11 +210,7 @@ class WandbMetricsLogger(Callback):
             for theta in self.theta_values
         ]
 
-        # Create max theta calculator
         self.max_theta_calculator = MaxThetaCalculator(lambda_value=lambda_value)
-
-        # Create expected return vs threshold plotter
-        from .metrics.plotters import ExpectedReturnVsThresholdPlotter
 
         self.expected_return_plotter = ExpectedReturnVsThresholdPlotter(
             lambda_value=lambda_value,
@@ -241,11 +235,7 @@ class WandbMetricsLogger(Callback):
         val_loss: float,
     ) -> None:
         """Log metrics to WandB at the end of each epoch."""
-        # Log metrics at specified frequency
         if epoch % self.log_frequency == 0:
-            from models.metrics import calculate_accuracy
-
-            # Compute training metrics
             train_accuracy = calculate_accuracy(train_predictions, train_targets)
             train_metrics = {
                 "train_loss": train_loss,
@@ -253,14 +243,12 @@ class WandbMetricsLogger(Callback):
                 "epoch_time": train_time,
             }
 
-            # Compute validation metrics using the metrics suite
             val_accuracy = calculate_accuracy(val_predictions, val_targets)
             val_metrics = {
                 "val_loss": val_loss,
                 "val_accuracy": val_accuracy,
             }
 
-            # Add detailed classification metrics for validation
             try:
                 detailed_metrics = self.metrics_suite.compute_all(val_predictions, val_targets)
                 for key, value in detailed_metrics.items():
@@ -268,22 +256,18 @@ class WandbMetricsLogger(Callback):
             except Exception as e:
                 logger.warning(f"Failed to compute detailed metrics: {e}")
 
-            # Compute expected returns for training and validation
             try:
                 for calc in self.expected_return_calculators:
-                    # Training expected return
                     train_er_results = calc.calculate(train_predictions, train_targets)
                     for result in train_er_results:
                         theta = result.metadata["theta"]
                         train_metrics[f"train_expected_return_theta_{theta:.4f}"] = result.value
 
-                    # Validation expected return
                     val_er_results = calc.calculate(val_predictions, val_targets)
                     for result in val_er_results:
                         theta = result.metadata["theta"]
                         val_metrics[f"val_expected_return_theta_{theta:.4f}"] = result.value
 
-                    # Binarize predictions for expected return calculation
                     train_er_results_bin = calc.calculate(
                         train_predictions, train_targets, binarize=True
                     )
@@ -303,7 +287,6 @@ class WandbMetricsLogger(Callback):
             except Exception as e:
                 logger.warning(f"Failed to compute expected returns: {e}")
 
-            # Compute max theta for non-negative expected return
             try:
                 for binarized in [False, True]:
                     suffix = "_binarized" if binarized else ""
@@ -319,7 +302,6 @@ class WandbMetricsLogger(Callback):
             except Exception as e:
                 logger.warning(f"Failed to compute max theta: {e}")
 
-            # Combine and log
             combined_metrics = {**train_metrics, **val_metrics}
             self.wandb_logger.log_metrics(combined_metrics, step=epoch)
 
@@ -329,35 +311,29 @@ class WandbMetricsLogger(Callback):
         """Log final plots and close WandB run."""
         y_pred, y_true = test_predictions
 
-        # Compute all metrics
         try:
             test_metrics = self.metrics_suite.compute_all(y_pred, y_true)
-            new_test_metrics = {}
-            for key, value in test_metrics.items():
-                new_test_metrics[f"test_{key}"] = value
+            new_test_metrics = {f"test_{k}": v for k, v in test_metrics.items()}
             self.wandb_logger.log_metrics(new_test_metrics)
             logger.info(f"Final test metrics: {new_test_metrics}")
         except Exception as e:
             logger.warning(f"Failed to compute final metrics: {e}")
 
-        # Compute expected returns on test set for each theta
         try:
             test_er_metrics = {}
             for calc in self.expected_return_calculators:
                 test_er_results = calc.calculate(y_pred, y_true)
                 for result in test_er_results:
                     theta = result.metadata["theta"]
-                    metric_name = f"test_expected_return_theta_{theta:.4f}"
-                    test_er_metrics[metric_name] = result.value
+                    test_er_metrics[f"test_expected_return_theta_{theta:.4f}"] = result.value
 
-                # Binarized expected return
                 test_er_results_bin = calc.calculate(y_pred, y_true, binarize=True)
                 for result in test_er_results_bin:
                     theta = result.metadata["theta"]
-                    metric_name = f"test_expected_return_theta_{theta:.4f}_binarized"
-                    test_er_metrics[metric_name] = result.value
+                    test_er_metrics[f"test_expected_return_theta_{theta:.4f}_binarized"] = (
+                        result.value
+                    )
 
-            # Compute max theta on test set
             for binarized in [False, True]:
                 suffix = "_binarized" if binarized else ""
                 test_max_theta = self.max_theta_calculator.calculate(
@@ -370,9 +346,7 @@ class WandbMetricsLogger(Callback):
         except Exception as e:
             logger.warning(f"Failed to compute test expected returns: {e}")
 
-        # Generate and log all plots
         try:
-            # Get training history for loss landscape plot
             history = {}
             for callback in trainer.callbacks:
                 if hasattr(callback, "get_history"):
@@ -380,8 +354,6 @@ class WandbMetricsLogger(Callback):
                     break
 
             plots = self.metrics_suite.generate_all_plots(y_pred, y_true, history=history)
-
-            # Add expected return vs threshold plot
             er_plot = self.expected_return_plotter.plot(y_pred, y_true)
             plots["expected_return_vs_threshold"] = er_plot
 
@@ -420,8 +392,6 @@ class TrainingHistoryTracker(Callback):
         val_loss: float,
     ) -> None:
         """Record training metrics to history."""
-        from models.metrics import calculate_accuracy, calculate_trade_accuracy
-
         train_accuracy = calculate_accuracy(train_predictions, train_targets)
         val_accuracy = calculate_accuracy(val_predictions, val_targets)
         train_trade_acc = calculate_trade_accuracy(train_predictions, train_targets)
@@ -462,9 +432,6 @@ class MLPSequenceWeightsLogger(Callback):
         self, trainer: Any, test_predictions: tuple[torch.Tensor, torch.Tensor]
     ) -> None:
         """Log MLP sequence weights after training completes."""
-        # Check if model is MLP
-        from models.architectures.mlp import MLPTimeSeriesModel
-
         if not isinstance(trainer.model, MLPTimeSeriesModel):
             logger.debug("Model is not MLP, skipping sequence weights logging")
             return
@@ -484,12 +451,10 @@ class MLPSequenceWeightsLogger(Callback):
         logger.info(f"  Max: {sequence_weights.max():.6f}")
         logger.info(f"\nFull weight values (sequence_length={sequence_weights.shape[1]}):")
 
-        # Log all weights
         weights_flat = sequence_weights.flatten()
         for i, weight in enumerate(weights_flat):
             logger.info(f"  Position {i:3d}: {weight:.6f}")
 
-        # Identify most important timesteps
         abs_weights = np.abs(weights_flat)
         top_k = min(10, len(weights_flat))
         top_indices = np.argsort(abs_weights)[-top_k:][::-1]
@@ -500,13 +465,11 @@ class MLPSequenceWeightsLogger(Callback):
                 f"  {rank}. Position {idx:3d}: {weights_flat[idx]:.6f} (abs: {abs_weights[idx]:.6f})"
             )
 
-        # Log to WandB if enabled
         if self.log_to_wandb:
             try:
                 import wandb
 
                 if wandb.run is not None:
-                    # Log summary statistics
                     wandb.log(
                         {
                             "mlp_sequence_weights/mean": float(sequence_weights.mean()),
@@ -516,12 +479,10 @@ class MLPSequenceWeightsLogger(Callback):
                         }
                     )
 
-                    # Create visualization
                     import matplotlib.pyplot as plt
 
                     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 
-                    # Plot all weights
                     ax1.plot(weights_flat, marker="o", linestyle="-", markersize=3)
                     ax1.set_xlabel("Sequence Position")
                     ax1.set_ylabel("Weight Value")
@@ -529,7 +490,6 @@ class MLPSequenceWeightsLogger(Callback):
                     ax1.grid(True, alpha=0.3)
                     ax1.axhline(y=0, color="r", linestyle="--", alpha=0.5)
 
-                    # Plot absolute weights
                     ax2.bar(range(len(abs_weights)), abs_weights, alpha=0.7)
                     ax2.set_xlabel("Sequence Position")
                     ax2.set_ylabel("Absolute Weight Value")
@@ -538,11 +498,9 @@ class MLPSequenceWeightsLogger(Callback):
 
                     plt.tight_layout()
 
-                    # Log to WandB
                     wandb.log({"mlp_sequence_weights_plot": wandb.Image(fig)})
                     plt.close(fig)
 
-                    # Log weights as table for detailed analysis
                     weights_table = wandb.Table(
                         columns=["position", "weight", "abs_weight"],
                         data=[[i, float(w), float(abs(w))] for i, w in enumerate(weights_flat)],
@@ -582,8 +540,6 @@ class ConsoleLogger(Callback):
         val_loss: float,
     ) -> None:
         """Log epoch metrics to console."""
-        from models.metrics import calculate_accuracy
-
         training_config = trainer.config.get_training_config()
 
         train_accuracy = calculate_accuracy(train_predictions, train_targets)

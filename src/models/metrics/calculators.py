@@ -17,6 +17,25 @@ from .core import MetricCalculator, MetricResult
 from typing import Literal
 
 
+# A₁ encodes directional returns: classes {0,1,2} represent {-1, 0, +1}
+_A1 = np.array(
+    [
+        [1, 0, -1],  # True: -1, Pred: -1 -> +1, 0 -> 0, +1 -> -1
+        [0, 0, 0],  # True:  0, always 0 return
+        [-1, 0, 1],  # True: +1, Pred: -1 -> -1, 0 -> 0, +1 -> +1
+    ]
+)
+
+# A₂ encodes commission: sum of non-neutral (class 0 and 2) predicted probabilities
+_A2 = np.array(
+    [
+        [1, 0, 1],
+        [1, 0, 1],
+        [1, 0, 1],
+    ]
+)
+
+
 class AccuracyCalculator(MetricCalculator):
     """Calculate classification accuracy."""
 
@@ -247,26 +266,8 @@ class ExpectedReturnCalculator(MetricCalculator):
         self.lambda_values = np.atleast_1d(np.asarray(lambda_values))
         self.theta_values = np.atleast_1d(np.asarray(theta_values))
         self.aggregate = aggregate
-
-        # Define A₁ matrix: encodes directional returns
-        # Rows/cols correspond to classes {0, 1, 2} representing {-1, 0, 1}
-        self.A1 = np.array(
-            [
-                [1, 0, -1],  # True: -1, Pred: -1 -> +1, 0 -> 0, +1 -> -1
-                [0, 0, 0],  # True:  0, always 0 return
-                [-1, 0, 1],  # True: +1, Pred: -1 -> -1, 0 -> 0, +1 -> +1
-            ]
-        )
-
-        # Define A₂ matrix: encodes commission (sum of non-neutral probs)
-        # Each row sums the probabilities of classes 0 and 2
-        self.A2 = np.array(
-            [
-                [1, 0, 1],
-                [1, 0, 1],
-                [1, 0, 1],
-            ]
-        )
+        self.A1 = _A1
+        self.A2 = _A2
 
     @property
     def requires_probabilities(self) -> bool:
@@ -292,14 +293,12 @@ class ExpectedReturnCalculator(MetricCalculator):
         Returns:
             List of MetricResult objects, one for each (lambda, theta) combination
         """
-        # Get probabilities (N x 3)
         if are_logits and predictions.dim() > 1:
             probs = torch.softmax(predictions, dim=1).cpu().numpy()
         else:
             probs = predictions.cpu().numpy()
 
         if binarize:
-            # Binarize predictions to one-hot
             pred_labels = np.argmax(probs, axis=1)
             probs = np.zeros_like(probs)
             probs[np.arange(len(pred_labels)), pred_labels] = 1.0
@@ -307,26 +306,17 @@ class ExpectedReturnCalculator(MetricCalculator):
         target_np = targets.cpu().numpy()
         N = len(target_np)
 
-        # Create one-hot encoded true labels (N x 3)
         y_onehot = np.zeros((N, 3))
         y_onehot[np.arange(N), target_np] = 1
 
-        # Compute y^T A₁ ŷ for all samples (vectorized)
-        # For each sample i: y_i^T A₁ ŷ_i
         directional_returns = np.einsum("ni,ij,nj->n", y_onehot, self.A1, probs)
-
-        # Compute y^T A₂ ŷ for all samples (vectorized)
-        # This is equivalent to: probs[:, 0] + probs[:, 2]
         commission_probs = np.einsum("ni,ij,nj->n", y_onehot, self.A2, probs)
 
-        # Compute expected return for all combinations
         results = []
         for lambda_val in self.lambda_values:
             for theta_val in self.theta_values:
-                # Expected return = λ * directional_returns - θ * commission_probs
                 expected_returns = lambda_val * directional_returns - theta_val * commission_probs
 
-                # Aggregate according to specified method
                 if self.aggregate == "mean":
                     aggregated_return = np.mean(expected_returns)
                 elif self.aggregate == "sum":
@@ -336,9 +326,7 @@ class ExpectedReturnCalculator(MetricCalculator):
                         f"Invalid aggregate method: {self.aggregate}. Use 'mean' or 'sum'."
                     )
 
-                # Create metric name
                 metric_name = f"expected_return_lambda-{lambda_val:.4f}_theta-{theta_val:.4f}"
-
                 results.append(
                     MetricResult(
                         name=metric_name,
@@ -373,24 +361,8 @@ class MaxThetaCalculator(MetricCalculator):
         """
         super().__init__("max_theta")
         self.lambda_value = lambda_value
-
-        # Define A₁ matrix: encodes directional returns (same as ExpectedReturnCalculator)
-        self.A1 = np.array(
-            [
-                [1, 0, -1],  # True: -1, Pred: -1 -> +1, 0 -> 0, +1 -> -1
-                [0, 0, 0],  # True:  0, always 0 return
-                [-1, 0, 1],  # True: +1, Pred: -1 -> -1, 0 -> 0, +1 -> +1
-            ]
-        )
-
-        # Define A₂ matrix: encodes commission (sum of non-neutral probs)
-        self.A2 = np.array(
-            [
-                [1, 0, 1],
-                [1, 0, 1],
-                [1, 0, 1],
-            ]
-        )
+        self.A1 = _A1
+        self.A2 = _A2
 
     @property
     def requires_probabilities(self) -> bool:
@@ -416,14 +388,12 @@ class MaxThetaCalculator(MetricCalculator):
         Returns:
             MetricResult with max_theta value (NaN if total commission_probs is zero)
         """
-        # Get probabilities (N x 3)
         if are_logits and predictions.dim() > 1:
             probs = torch.softmax(predictions, dim=1).cpu().numpy()
         else:
             probs = predictions.cpu().numpy()
 
         if binarized:
-            # Binarize predictions to one-hot
             pred_labels = np.argmax(probs, axis=1)
             probs = np.zeros_like(probs)
             probs[np.arange(len(pred_labels)), pred_labels] = 1.0
@@ -431,17 +401,12 @@ class MaxThetaCalculator(MetricCalculator):
         target_np = targets.cpu().numpy()
         N = len(target_np)
 
-        # Create one-hot encoded true labels (N x 3)
         y_onehot = np.zeros((N, 3))
         y_onehot[np.arange(N), target_np] = 1
 
-        # Compute y^T A₁ ŷ for all samples (vectorized)
         directional_returns = np.einsum("ni,ij,nj->n", y_onehot, self.A1, probs)
-
-        # Compute y^T A₂ ŷ for all samples (vectorized)
         commission_probs = np.einsum("ni,ij,nj->n", y_onehot, self.A2, probs)
 
-        # Compute max_theta = λ * sum(directional_returns) / sum(commission_probs)
         total_directional_returns = np.sum(directional_returns)
         total_commission_probs = np.sum(commission_probs)
 

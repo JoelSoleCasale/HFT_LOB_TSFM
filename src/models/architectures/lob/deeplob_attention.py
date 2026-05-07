@@ -224,12 +224,10 @@ class DeepLOBAttentionModel(FinancialTimeSeriesModel):
                 f"Expected 3D (batch, time, features) or 4D (batch, channels, time, features) input, got {x.dim()}D tensor with shape {x.shape}"
             )
 
-        # Conv front-end
         x = self.conv_block1(x)
         x = self.conv_block2(x)
         x = self.conv_block3(x)
 
-        # Inception module
         inp3 = self.inp3_pool(x)
         inp3 = self.inp3_conv(inp3)
 
@@ -237,22 +235,17 @@ class DeepLOBAttentionModel(FinancialTimeSeriesModel):
         x_inp2 = self.inp2(x)
         x = torch.cat((x_inp1, x_inp2, inp3), dim=1)
 
-        # Reshape for LSTM: (batch, time, features)
-        x = x.permute(0, 2, 1, 3)  # (B, T, C, W)
-        x = torch.reshape(x, (x.shape[0], x.shape[1], x.shape[2]))  # (B, T, C)
+        x = x.permute(0, 2, 1, 3)
+        x = torch.reshape(x, (x.shape[0], x.shape[1], x.shape[2]))
 
-        # Encoder LSTM
         encoder_outputs, (h_n, c_n) = self.encoder_lstm(x)
-        # h_n: (num_layers, B, H) -> take last layer
-        h_n = h_n[-1]  # (B, H)
+        h_n = h_n[-1]
 
-        # Luong dot-product attention: scores = encoder_outputs · h_n
-        # encoder_outputs: (B, T, H), h_n: (B, H)
-        scores = torch.bmm(encoder_outputs, h_n.unsqueeze(2)).squeeze(2)  # (B, T)
-        attn_weights = torch.softmax(scores, dim=1)  # (B, T)
-        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs).squeeze(1)  # (B, H)
+        # Luong dot-product attention
+        scores = torch.bmm(encoder_outputs, h_n.unsqueeze(2)).squeeze(2)
+        attn_weights = torch.softmax(scores, dim=1)
+        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs).squeeze(1)
 
-        # Concatenate context and last hidden state, apply dropout, then classify
         combined = torch.cat([context, h_n], dim=1)
         combined = self.dropout(combined)
         out = self.fc(combined)
