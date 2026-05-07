@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias
 import polars as pl
 
 
@@ -11,7 +11,6 @@ class DataRequest(Protocol):
         ...
 
 
-# New feature-related types
 FeatureVector: TypeAlias = pl.LazyFrame
 LabelVector: TypeAlias = pl.LazyFrame
-FeatureConfig: TypeAlias = dict[str, any]
+FeatureConfig: TypeAlias = dict[str, Any]

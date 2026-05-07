@@ -12,22 +12,15 @@ from definitions import ROOT_DIR
 from utils import setup_logging
 
 
-def main():
+def main() -> None:
     """Generate embeddings for a specific date range programmatically."""
-    # Setup logging
     setup_logging(level="INFO")
 
-    logger.info("=" * 80)
-    logger.info("Embedding Generation Example")
-    logger.info("=" * 80)
-
-    # Configuration
     base_folder = ROOT_DIR / "data"
     symbol = "BTCUSDT"
     exchange = "binance_futures"
     dates = ["2025-07-01", "2025-07-02", "2025-07-03"]
 
-    # Embedding configuration
     embedding_config = {
         "model_type": "t5",
         "model_size": "mini",  # Use "base" or "large" for better quality
@@ -39,21 +32,19 @@ def main():
         "device": "cuda",  # Change to "cpu" if no GPU
     }
 
-    # Initialize processor
     processor = EmbeddingProcessor(
         base_folder=base_folder,
         embedding_type="chronos",
         embedding_config=embedding_config,
         context_length=512,  # Use 1024 or 2048 for more context
-        feature_extractors=["advanced_orderbook"],  # Can add multiple extractors
+        feature_extractors=["advanced_orderbook"],
         orderbook_levels=5,
-        sample_time_delta=100_000_000,  # 100ms
+        sample_time_delta=100_000_000,  # 100ms in nanoseconds
         interpolate=True,
         orderbook_subfolder="orderbook_snapshots",
         output_subfolder="embeddings",
     )
 
-    # Process each date
     successful = 0
     failed = 0
 
@@ -65,7 +56,7 @@ def main():
                 symbol=symbol,
                 exchange=exchange,
                 date_str=date_str,
-                skip_existing=True,  # Skip if already processed
+                skip_existing=True,
             )
 
             if success:
@@ -79,15 +70,10 @@ def main():
             failed += 1
             logger.error(f"✗ Error processing {date_str}: {e}")
 
-    # Summary
-    logger.info("\n" + "=" * 80)
-    logger.info("Processing Summary")
-    logger.info("=" * 80)
-    logger.info(f"Total dates: {len(dates)}")
+    logger.info(f"\nTotal dates: {len(dates)}")
     logger.info(f"Successful: {successful}")
     logger.info(f"Failed: {failed}")
 
-    # Show output structure
     output_dir = base_folder / "embeddings" / exchange / symbol
     if output_dir.exists():
         logger.info(f"\nOutput directory: {output_dir}")

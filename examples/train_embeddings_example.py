@@ -8,6 +8,7 @@ This script demonstrates how to:
 4. Evaluate the trained model
 """
 
+import os
 from pathlib import Path
 import warnings
 from datetime import date, timedelta
@@ -34,6 +35,10 @@ from loguru import logger
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")  # noqa: B028
 
+_DEFAULT_EMBEDDING_DIR = os.environ.get(
+    "EMBEDDING_DATA_DIR", str(ROOT_DIR / "data" / "embeddings")
+)
+
 
 def get_embeddings_paths(
     str_code: str,
@@ -41,7 +46,7 @@ def get_embeddings_paths(
     end_date: date,
     exchange: str = "binance_futures",
     symbol: str = "BTCUSDT",
-    base_path: str = "/scratch/PI/palomar/joel_sole/embedding_data",
+    base_path: str = _DEFAULT_EMBEDDING_DIR,
 ) -> list[Path]:
     """
     Get list of embedding parquet file paths for specified date range.
@@ -133,7 +138,7 @@ def apply_pca_reduction(
     data_end_date: date,
     exchange: str = "binance_futures",
     symbol: str = "BTCUSDT",
-    base_path: str = "/scratch/PI/palomar/joel_sole/embedding_data",
+    base_path: str = _DEFAULT_EMBEDDING_DIR,
 ) -> tuple[pl.LazyFrame, int]:
     """
     Apply PCA dimensionality reduction using pre-computed PCA model.
@@ -154,12 +159,10 @@ def apply_pca_reduction(
     Returns:
         Tuple of (LazyFrame with PCA-transformed embeddings and timestamp, original embedding size)
     """
-    # Get embedding columns (all except timestamp)
     all_cols = embeddings.collect_schema().names()
     embedding_cols = [col for col in all_cols if col != "timestamp"]
     original_size = len(embedding_cols)
 
-    # Define cache path
     cache_dir = Path(base_path) / exchange / symbol / "PCA" / f"{embedding_code}_pca{n_components}"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -168,7 +171,6 @@ def apply_pca_reduction(
     )
     cache_path = cache_dir / cache_filename
 
-    # Check if cached file exists
     if cache_path.exists():
         logger.info(f"Loading cached PCA-reduced embeddings from: {cache_path}")
         reduced_embeddings = pl.scan_parquet(cache_path)
@@ -181,7 +183,6 @@ def apply_pca_reduction(
         f"Cache not found. Applying PCA dimensionality reduction from {original_size} to {n_components} components..."
     )
 
-    # Initialize PCA processor
     pca_processor = PCAProcessor(
         exchange=exchange,
         symbol=symbol,
@@ -189,7 +190,6 @@ def apply_pca_reduction(
         base_path=base_path,
     )
 
-    # Load pre-computed PCA model
     logger.info(
         f"Loading pre-computed PCA model for training period: "
         f"{train_start_date} to {train_end_date}"
@@ -208,35 +208,31 @@ def apply_pca_reduction(
         )
         raise
 
-    # Transform embeddings using loaded PCA
     logger.info("Transforming embeddings using loaded PCA model...")
     reduced_embeddings = incremental_pca.transform(
         data=embeddings,
         keep_timestamp=True,
     )
 
-    # set the quantization to Float32 to save memory
+    # Cast to Float32 to reduce memory usage
     reduced_embeddings = reduced_embeddings.cast({pl.Float64: pl.Float32})
 
-    # Log explained variance
     total_variance = incremental_pca.get_total_explained_variance()
     logger.info(f"Total explained variance: {total_variance:.4f}")
 
-    # Save to cache using sink_parquet (no need to collect)
     logger.info(f"Saving PCA-reduced embeddings to cache: {cache_path}")
     reduced_embeddings.sink_parquet(cache_path)
 
-    # Load the cached file as LazyFrame
+    # Reload as LazyFrame so the caller always gets a scan-based frame
     reduced_embeddings = pl.scan_parquet(cache_path)
     logger.info("Cache saved and reloaded successfully")
 
     return reduced_embeddings, original_size
 
 
-def main():
+def main() -> None:
     """Main function demonstrating model training on embeddings."""
 
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description="Train MLP model on Chronos embeddings",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -264,46 +260,36 @@ def main():
 
     setup_logging(level="DEBUG")
 
-    # Configuration
     FIRST_DATE = date(2025, 7, 1)
     N_DAYS = 10
 
     MAX_TOTAL_SAMPLES = 100_000_000  # Limit total samples to avoid memory issues
 
-    # Embedding configuration from arguments
     EMBEDDING_CODE = args.embedding_code
 
-    # Calculate date range
     END_DATE = FIRST_DATE + timedelta(days=N_DAYS - 1)
 
-    print(f"Loading embeddings: {EMBEDDING_CODE}...")
-    print(f"Date range: {FIRST_DATE} to {END_DATE}")
+    logger.info(f"Loading embeddings: {EMBEDDING_CODE}...")
+    logger.info(f"Date range: {FIRST_DATE} to {END_DATE}")
 
-    # Get embedding paths for date range
     embedding_paths = get_embeddings_paths(
         str_code=EMBEDDING_CODE,
         start_date=FIRST_DATE,
         end_date=END_DATE,
     )
-    print(f"Found {len(embedding_paths)} embedding files")
+    logger.info(f"Found {len(embedding_paths)} embedding files")
 
-    # Load embeddings (keep as LazyFrame to avoid memory issues)
     embeddings = pl.scan_parquet(embedding_paths).limit(MAX_TOTAL_SAMPLES)
-    print("Embeddings loaded (LazyFrame)")
+    logger.info("Embeddings loaded (LazyFrame)")
 
-    # ============================================================================
-    # PCA Dimensionality Reduction (before joining with labels)
-    # ============================================================================
-    N_COMPONENTS = args.n_components  # Number of PCA components to keep
+    N_COMPONENTS = args.n_components
     TRAIN_SPLIT = 0.8  # Must match DataConfig train_split
 
-    # Calculate training period end date (for loading pre-computed PCA)
     train_n_days = int(N_DAYS * TRAIN_SPLIT)
     train_end_date = FIRST_DATE + timedelta(days=train_n_days - 1)
 
-    print(f"\nPCA training period: {FIRST_DATE} to {train_end_date} ({train_n_days} days)")
+    logger.info(f"PCA training period: {FIRST_DATE} to {train_end_date} ({train_n_days} days)")
 
-    # Apply PCA using pre-computed model (with caching)
     embeddings, original_embedding_size = apply_pca_reduction(
         embeddings=embeddings,
         n_components=N_COMPONENTS,
@@ -314,94 +300,78 @@ def main():
         data_end_date=END_DATE,
     )
 
-    print(f"Original embedding dimension: {original_embedding_size}")
-    print(f"Reduced embedding dimension: {N_COMPONENTS}")
+    logger.info(f"Original embedding dimension: {original_embedding_size}")
+    logger.info(f"Reduced embedding dimension: {N_COMPONENTS}")
 
-    # ============================================================================
-    # End PCA Reduction
-    # ============================================================================
+    logger.info("Loading orderbook data for labels...")
 
-    print("\nLoading orderbook data for labels...")
-
-    # Get orderbook paths for date range
     ob_paths = get_orderbook_paths(
         start_date=FIRST_DATE,
         end_date=END_DATE,
     )
-    print(f"Found {len(ob_paths)} orderbook files")
+    logger.info(f"Found {len(ob_paths)} orderbook files")
     orderbook_data = (
         OrderBook.from_parquet(ob_paths, lazy=True)
         .select_levels(5)
         .sample_by_time(time_delta=100_000_000, interpolate=True)
     )
 
-    # Create input space for label generation
     input_space = InputSpace(
         orderbook_snapshots=orderbook_data,
     )
 
-    # Build label pipeline
     directional_return_label = TripleBarrierLabel(config={"horizon": 200, "threshold": 2e-4})
 
-    print("Extracting labels...")
+    logger.info("Extracting labels...")
     labels = directional_return_label.extract(input_space).collect()
-    print(f"Labels shape: {labels.shape}")
+    logger.info(f"Labels shape: {labels.shape}")
 
-    # Join embeddings with labels on timestamp
     label_col = directional_return_label.label_names[0]
 
-    print("\nJoining embeddings with labels...")
+    logger.info("Joining embeddings with labels...")
 
-    # Verify all embedding timestamps exist in labels (anti join to find missing)
+    # Inner join keeps only timestamps present in both embeddings and labels.
+    # Anti-join check below surfaces any unmatched embedding rows for debugging.
     missing = embeddings.join(labels.select(["timestamp"]).lazy(), on="timestamp", how="anti")
     missing_count = missing.select(pl.len()).collect().item()
     if missing_count > 0:
         sample_missing = missing.select("timestamp").head(5).collect()["timestamp"].to_list()
-        print(f"Warning: Found {missing_count} embedding timestamps not present in labels.")
-        print(f"Examples: {sample_missing}")
+        logger.warning(f"Found {missing_count} embedding timestamps not present in labels.")
+        logger.warning(f"Examples: {sample_missing}")
 
-    # Join labels to match embedding timestamps (inner join to keep only aligned data)
     data = embeddings.join(labels.lazy(), on="timestamp", how="inner")
-    print("Aligned data joined (LazyFrame)")
+    logger.info("Aligned data joined (LazyFrame)")
 
-    # Print label distribution from collected labels
     label_counts = labels[label_col].value_counts()
     total_samples = len(labels)
 
-    print("\nLabel distribution:")
+    logger.info("Label distribution:")
     for label_value, count in label_counts.iter_rows():
         percentage = (count / total_samples) * 100
-        print(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
+        logger.info(f"  Label {label_value}: {count:,} samples ({percentage:.2f}%)")
 
-    # Calculate class weights for loss function
     class_weights = [0.0, 0.0, 0.0]
     for label_value, count in label_counts.iter_rows():
         freq = count / total_samples
         class_weights[label_value + 1] = 1 / freq
 
-    # Prepare features and labels as LazyFrames for the model
-    # Separate features from labels (data is already a LazyFrame)
-    # Get column names by collecting schema
     all_cols = data.collect_schema().names()
     embedding_cols = [col for col in all_cols if col not in ["timestamp", label_col]]
     features_df = data.select(["timestamp"] + embedding_cols)
     labels_df = data.select(["timestamp", label_col])
 
-    # Input size is now the reduced PCA dimension
     input_size = N_COMPONENTS
 
-    print(f"\nHidden sizes for MLP: {args.hidden_sizes}")
+    logger.info(f"Hidden sizes for MLP: {args.hidden_sizes}")
 
-    # Create MLP configuration for embedding-based training
     mlp_config = MLPConfig(
         input_size=input_size,
         output_size=3,  # -1, 0, 1 for directional labels
-        hidden_sizes=args.hidden_sizes,  # From command-line args
+        hidden_sizes=args.hidden_sizes,
         dropout=0.2,
         sequence_length=1,  # Each embedding is a single timestamp
     )
 
-    # Parse embedding code to extract components
     embedding_parts = EMBEDDING_CODE.split("_")
     embedding_info = {}
     for part in embedding_parts:
@@ -413,12 +383,10 @@ def main():
             try:
                 embedding_info["sampling_rate"] = int(part[1:])
             except ValueError:
-                pass  # Not a sampling rate
+                pass
         elif "-" in part:
-            # This is likely the model name (e.g., "chronos2-base")
             embedding_info["embedding_model"] = part
 
-    # Collect all relevant training metadata
     other_info = {
         "pca_components": N_COMPONENTS,
         "original_embedding_size": original_embedding_size,
@@ -465,17 +433,16 @@ def main():
         other=other_info,
     )
 
-    print("\nStarting model training...")
-    print(f"Model configuration: {config}")
+    logger.info("Starting model training...")
+    logger.info(f"Model configuration: {config}")
 
-    # Train the model
     trainer, results = train_model(
         features=features_df,
         labels=labels_df,
         config=config,
     )
 
-    print("\nTraining completed!")
+    logger.info("Training completed!")
 
 
 if __name__ == "__main__":
