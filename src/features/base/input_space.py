@@ -19,7 +19,3 @@ class InputSpace:
     sentiment: pl.LazyFrame | None = None
 
     metadata: dict | None = None  # timestamps, symbols, etc.
-
-    def validate(self) -> bool:
-        """Ensure required data is present"""
-        pass

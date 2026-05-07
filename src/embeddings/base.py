@@ -52,26 +52,9 @@ class BaseEmbeddingGenerator(ABC):
         pass
 
     def get_embedding_dim(self) -> int:
-        """
-        Get the dimension of embeddings produced by this generator.
-
-        Returns:
-            Embedding dimension
-        """
+        """Return the embedding dimension; raises if not yet set."""
         if self.embedding_dim is None:
             raise ValueError(
                 "Embedding dimension not set. Call generate_embedding or generate_embeddings_batch first."
             )
         return self.embedding_dim
-
-    def validate_config(self) -> bool:
-        """
-        Validate the configuration.
-
-        Returns:
-            True if configuration is valid
-
-        Raises:
-            ValueError: If configuration is invalid
-        """
-        return True

@@ -8,7 +8,7 @@ from features.base.input_space import InputSpace
 class BaseLabelExtractor(ABC):
     """Abstract base for all label extractors"""
 
-    def __init__(self, config: dict[str, object] = None):
+    def __init__(self, config: dict[str, object] | None = None):
         self.config = config or {}
         self.label_names: list[str] = []
         self.dependencies: list[str] = []
